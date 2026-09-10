@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "appstore_input_controller.hpp"
 #include "appstore_task_service.hpp"
 #include "detached_worker_launcher.hpp"

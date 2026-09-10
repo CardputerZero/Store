@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+# SPDX-License-Identifier: MIT
+
 set -eu
 build_dir="${TMPDIR:-/tmp}/appstore-tests"
 ext_components_path="${CARDPUTERZERO_EXT_COMPONENTS_PATH:-$(dirname "$0")/../../../ext_components}"
