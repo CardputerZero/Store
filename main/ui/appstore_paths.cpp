@@ -82,9 +82,11 @@ std::string icon_file_path(const std::string &app_dir, const appstore::StoreApp 
 
 std::vector<std::string> detail_screenshot_paths(const std::string &app_dir, const appstore::StoreApp &app)
 {
-    std::vector<std::string> images = appstore::split_csv_paths(app.images);
+    const size_t separator = app.images.find(',');
+    if (separator == std::string::npos) return {};
+    std::vector<std::string> images = appstore::split_csv_paths(app.images.substr(separator + 1));
     std::vector<std::string> out;
-    for (size_t i = 1; i < images.size(); ++i) {
+    for (size_t i = 0; i < images.size(); ++i) {
         std::string path = resolve_media_path(app_dir, images[i]);
         if (!path.empty()) out.push_back(path);
     }

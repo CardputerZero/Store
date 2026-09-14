@@ -24,11 +24,6 @@ DetailActionController::DetailActionController(AppStoreSessionState &session,
 {
 }
 
-std::vector<std::string> DetailActionController::description_lines(const StoreApp &app)
-{
-    return wrap_display_text(app.description.empty() ? "-" : app.description, 34);
-}
-
 StoreApp *DetailActionController::selected_app()
 {
     StoreApp *app = session_.catalog.selected_app();
@@ -163,7 +158,8 @@ void DetailActionController::cycle_screenshot(int delta, uint32_t now)
     const auto screenshots = detail_screenshot_paths(session_.app_dir, *app);
     session_.detail_media.normalize_images(app->id, static_cast<int>(screenshots.size()));
     if (screenshots.empty()) {
-        session_.status.value() = "No screenshots for this app";
+        if (session_.screen == Screen::Screenshots)
+            session_.status.value() = "No screenshots for this app";
         return;
     }
     session_.detail_media.cycle_image(delta, static_cast<int>(screenshots.size()));
@@ -183,7 +179,8 @@ bool DetailActionController::open_screenshots(uint32_t now)
     session_.screen = Screen::Screenshots;
     const auto screenshots = detail_screenshot_paths(session_.app_dir, *app);
     session_.detail_media.normalize_images(app->id, static_cast<int>(screenshots.size()));
-    if (screenshots.empty() && start_screenshots_) {
+    if (screenshots.empty() && app->screenshot_count != 0 &&
+        !session_.detail_media.loading() && start_screenshots_) {
         session_.detail_media.begin_loading(app->id);
         if (!start_screenshots_(app->id))
             session_.detail_media.finish_loading(app->id, true);
@@ -191,17 +188,21 @@ bool DetailActionController::open_screenshots(uint32_t now)
     return true;
 }
 
-void DetailActionController::scroll_description(int delta)
+void DetailActionController::ensure_screenshots()
 {
     StoreApp *app = selected_app();
-    if (!app) {
-        session_.status.value() = "No selected app";
-        return;
-    }
-    auto lines = description_lines(*app);
-    session_.detail_media.normalize_description(app->id, static_cast<int>(lines.size()), 3);
-    if (lines.size() <= 3) return;
-    session_.detail_media.scroll_description(delta, static_cast<int>(lines.size()), 3);
+    if (!app || app->screenshot_count == 0 || !start_screenshots_ ||
+        !session_.detail_media.needs_loading(app->id)) return;
+    const auto cached = detail_screenshot_paths(session_.app_dir, *app);
+    if (!cached.empty() && (app->screenshot_count < 0 ||
+        static_cast<int>(cached.size()) >= app->screenshot_count)) return;
+    // A busy worker can be retried on the next render; an empty result is not retried.
+    if (start_screenshots_(app->id)) session_.detail_media.begin_loading(app->id);
+}
+
+void DetailActionController::scroll_page(int delta)
+{
+    session_.detail_media.scroll_page(delta);
     session_.status.value().clear();
 }
 

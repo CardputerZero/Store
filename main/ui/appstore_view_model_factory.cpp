@@ -47,6 +47,8 @@ std::string human_size(const std::string &value)
     const size_t decimal = result.rfind(redundant_decimal);
     if (decimal != std::string::npos && decimal + redundant_decimal.size() == result.size())
         result.erase(decimal, 2);
+    result.insert(result.size() - 1, " ");
+    if (unit[0] != 'B') result += "B";
     return result;
 }
 
@@ -84,26 +86,15 @@ CatalogDisplayViewModel AppStoreViewModelFactory::catalog(
     model.show_empty = session_.catalog.visible().empty();
     model.show_status = session_.status.visible(now, status_visible_ms);
     model.status = session_.status.value();
-    const int visible_count = static_cast<int>(session_.catalog.visible().size());
-    struct RowIndex { int row; int visible_index; };
-    std::vector<RowIndex> indices;
-    if (visible_count >= 5) {
-        for (int row = 0; row < 5; ++row)
-            indices.push_back({row, (session_.catalog.selected_index() + row - 2 + visible_count) % visible_count});
-    } else if (visible_count > 0) {
-        int first = std::max(0, session_.catalog.selected_index() - 2);
-        int last = std::min(visible_count - 1, first + 4);
-        first = std::max(0, last - 4);
-        const int start_row = 2 - (session_.catalog.selected_index() - first);
-        for (int index = first; index <= last; ++index) {
-            const int row = start_row + index - first;
-            if (row >= 0 && row < 5) indices.push_back({row, index});
-        }
-    }
-    for (const auto &index : indices) {
-        const StoreApp &app = session_.catalog.apps()[session_.catalog.visible()[index.visible_index]];
-        model.rows.push_back({app.name, app.version, app.author,
-                              index.visible_index == session_.catalog.selected_index(), index.row});
+    model.total_count = static_cast<int>(session_.catalog.apps().size());
+    model.empty_message = session_.catalog.current_category_name() == "Installed"
+        ? "No installed apps" : "No apps";
+    if (const auto *app = session_.catalog.selected_app()) {
+        model.name = single_line(app->name);
+        model.version = single_line(app->version.empty() ? "-" : app->version);
+        model.author = single_line(app->author.empty() ? "-" : app->author);
+        model.size = human_size(app->size);
+        model.updated = app->updated_at.empty() ? "-" : app->updated_at.substr(0, 10);
     }
     return model;
 }
@@ -127,17 +118,12 @@ AppDetailViewModel AppStoreViewModelFactory::detail(StoreApp *selected, uint32_t
     model.status = session_.status.value();
     model.show_status = !package_job_.running &&
         session_.status.visible(now, status_visible_ms);
-    if (model.show_status) return model;
-    auto lines = DetailActionController::description_lines(*selected);
-    session_.detail_media.normalize_description(selected->id, static_cast<int>(lines.size()), 3);
-    const int total = static_cast<int>(lines.size());
-    model.description_lines = std::move(lines);
-    model.description_start = std::min(session_.detail_media.description_scroll(),
-                                       std::max(0, total - 1));
-    if (total > 3) {
-        model.description_position = session_.detail_media.description_scroll() + 1;
-        model.description_page_count = std::max(0, total - 3) + 1;
+    model.description = selected->description.empty() ? "-" : selected->description;
+    for (const auto &category : selected->categories) {
+        if (!model.categories.empty()) model.categories += "; ";
+        model.categories += single_line(category);
     }
+    if (model.categories.empty()) model.categories = selected->category.empty() ? "-" : selected->category;
     return model;
 }
 

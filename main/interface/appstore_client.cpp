@@ -559,6 +559,8 @@ SummaryData load_summary(SortRule rule)
             if (fields.size() >= 17) app.review_status = fields[16];
             if (fields.size() >= 18) app.installable = fields[17] == "1";
             if (fields.size() >= 19) app.installed_version = fields[18];
+            if (fields.size() >= 21) app.package = fields[20];
+            if (fields.size() >= 22) app.screenshot_count = std::atoi(fields[21].c_str());
             if (fields.size() >= 20) {
                 std::istringstream categories(fields[19]);
                 std::string category;

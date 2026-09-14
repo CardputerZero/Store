@@ -18,6 +18,11 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
     "$(dirname "$0")/test_catalog_state.cpp" \
     "$(dirname "$0")/../main/ui/catalog_state.cpp" \
     -o "$build_dir/test_catalog_state"
+${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
+    -I"$(dirname "$0")/../main/ui" \
+    "$(dirname "$0")/test_horizontal_marquee.cpp" \
+    -o "$build_dir/test_horizontal_marquee"
+"$build_dir/test_horizontal_marquee"
 "$build_dir/test_catalog_state"
 ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
     -I"$(dirname "$0")/../main/interface" -I"$(dirname "$0")/../main/ui" \

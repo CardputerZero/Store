@@ -200,6 +200,7 @@ void AppStoreApp::render_current_screen()
 {
     input_context_scope_.update(appstore_input_context(g_runtime.session.screen));
     activate(g_runtime.session.screen);
+    if (g_runtime.session.screen == Screen::Detail) detail_actions_.ensure_screenshots();
     presenter_.render(g_runtime.session.screen, registry_actions_.operation_running());
 }
 
@@ -228,15 +229,17 @@ bool AppStoreApp::poll_screenshots()
     if (result.rc == 0) {
         appstore::StoreApp *app = runtime_.session.catalog.selected_app();
         if (app && app->id == request.app_id) {
+            std::string images = first_csv(app->images);
             std::istringstream stream(result.output);
             std::string line;
             while (std::getline(stream, line)) {
                 const auto fields = split_tab(line);
                 if (fields.size() >= 3 && fields[0] == "SCREENSHOT") {
-                    if (!app->images.empty()) app->images += ',';
-                    app->images += fields[2];
+                    images += ',';
+                    images += fields[2];
                 }
             }
+            app->images = std::move(images);
         }
         request_coordinator_.request_summary();
     }

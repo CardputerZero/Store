@@ -50,7 +50,8 @@ void CatalogState::rebuild_visible()
                 app.categories.end();
         if (app.recommended) ++recommended_count;
         if (category_match) ++exact_category_count;
-        const bool show = category == "All" ||
+        const bool show = category == "Installed" ? app.installed :
+            category == "All" ||
             (category == "Recommended" && app.recommended) || category_match;
         if (show) visible_.push_back(index);
     }

@@ -47,9 +47,9 @@ void sort_apps(std::vector<StoreApp> &, SortRule) {}
 } // namespace appstore
 
 std::vector<std::string> detail_screenshot_paths(const std::string &,
-                                                  const appstore::StoreApp &)
+                                                  const appstore::StoreApp &app)
 {
-    return {};
+    return app.images.empty() ? std::vector<std::string>{} : std::vector<std::string>{"one.png", "two.png"};
 }
 
 int main()
@@ -206,6 +206,17 @@ int main()
     assert(session.screen == Screen::Registry && session.status.value().empty());
 
     session.screen = Screen::Detail;
+    const std::string detail_id = session.catalog.selected_app()->id;
+    session.detail_media.normalize_page(detail_id, 400, 129);
+    input.handle({KEY_X, 0, 'x'}, 186);
+    assert(session.detail_media.page_scroll() == 24);
+    input.handle({KEY_F, 0, 'f'}, 187);
+    assert(session.detail_media.page_scroll() == 0);
+    session.catalog.selected_app()->images = "icon,one,two";
+    input.handle({KEY_C, 0, 'c'}, 188);
+    assert(session.detail_media.image_index() == 1 && session.screen == Screen::Detail);
+    input.handle({KEY_Z, 0, 'z'}, 189);
+    assert(session.detail_media.image_index() == 0);
     input.handle({KEY_5}, 190);
     assert(session.screen == Screen::Screenshots);
     session.screen = Screen::Detail;

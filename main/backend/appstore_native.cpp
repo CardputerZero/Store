@@ -1084,7 +1084,7 @@ std::string summary_output()
     if (pending.is_object() && !pending.empty())
         emit(out, "WARN", "Interrupted " + pending.value("action", std::string("package operation")) +
              " pending; retry it from app details");
-    std::vector<std::string> categories = {"Recommended", "All"};
+    std::vector<std::string> categories = {"Recommended", "All", "Installed"};
     for (const auto &app : apps) for (const auto &category : string_list(app.value("categories", json::array())))
         if (std::find(categories.begin(), categories.end(), category) == categories.end()) categories.push_back(category);
     for (const auto &category : categories) emit(out, "CAT", category);
@@ -1100,7 +1100,7 @@ std::string summary_output()
         auto state = effective_package_state(package_name(app));
         std::vector<std::string> images;
         std::string icon = app.value("_icon_local", "");
-        if (!icon.empty()) images.push_back(icon);
+        images.push_back(icon); // Keep the icon slot even when only screenshots exist.
         for (const auto &shot : string_list(app.value("_screenshots_local", json::array()))) images.push_back(shot);
         std::ostringstream image_text;
         for (size_t i = 0; i < images.size(); ++i) { if (i) image_text << ','; image_text << images[i]; }
@@ -1108,13 +1108,20 @@ std::string summary_output()
         if (app.contains("source") && app["source"].is_object()) source = app["source"].value("repository", "");
         if (source.empty()) source = app.value("source_repo", app.value("repository", app.value("git_url", "")));
         std::string dependencies = dependencies_text(app);
+        const std::string summary = localized(app, "summary");
+        const std::string description = localized(app, "description");
+        const std::string full_description = summary.empty() ? description :
+            (description.empty() || description == summary ? summary : summary + "\n" + description);
+        const json assets = app.value("assets", json::object());
+        const auto screenshot_refs = string_list(assets.contains("screenshots")
+            ? assets["screenshots"] : app.value("screenshots", json::array()));
         emit(out, "APP", app_key(app), localized(app, "title"), app.value("version", ""),
              app_categories.empty() ? "Other" : app_categories.front(),
              installed(app) ? "1" : "0", (app.value("featured", false) || review(app) == "approved") ? "1" : "0",
-             field(download.value("size", json("online"))), localized(app, "summary").empty() ? localized(app, "description") : localized(app, "summary"),
+             field(download.value("size", json("online"))), full_description,
              author(app), source, image_text.str(), dependencies, app.value("share_code", ""), app.value("_registry_name", ""),
              app.value("updated_at", app.value("published_at", "")), review(app), review(app) == "approved" ? "1" : "0", state.version,
-             category_text.str());
+             category_text.str(), package_name(app), screenshot_refs.size());
     }
     return out.str();
 }

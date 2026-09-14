@@ -97,9 +97,25 @@ region radio buttons to choose the built-in Default or CN registry. Add another
 registry from the same screen or with `--add-registry`; the selected region
 registry and all enabled custom registries are synced and merged into one app
 list. Apps with the same UUID/share code are de-duplicated, with later registry
-metadata taking precedence. On the home screen, press `S` to open Registry
-Settings and `C` to open the share code input page. AppStore syncs the registry
+metadata taking precedence. On the home screen, use `Z/C` (left/right) to change
+category and `F/X` (up/down) to select an app. Installed filters catalog apps by
+their actual package installation state and refreshes after package operations.
+The Installed category is hidden when empty; removing its last app returns the
+selection to All. Long app names pause for two seconds, then scroll horizontally
+at 20 pixels per second, with another pause at the end. Status-bar updates keep
+the current reading position, and labels never scroll vertically.
+The header shows the selection within the category and the total catalog size.
+Press `4` for settings, `5` for share code, `6` for search, `7` for
+install/reinstall, and `8` or Enter for details. AppStore syncs the registry
 automatically when it starts.
+
+The detail page shows the complete combined summary and description, followed
+by 160 x 85 screenshot previews loaded from the registry. `F/X` scrolls the
+whole content area; the system bar and bottom actions stay fixed. Descriptions
+wrap without a height limit or automatic scrolling. `Z/C` cycles screenshots;
+apps without screenshots have no screenshot area. Detail actions are `4` back,
+`6` install/reinstall, `7` upgrade, and `8` remove, shown when applicable.
+The existing full-screen screenshot viewer remains accessible through `5`.
 
 Registry entries must provide a Debian package download:
 
@@ -113,7 +129,7 @@ download:
 
 ## Share Code Flow
 
-On the AppStore home screen, press `C` to open the share code input page. Type
+On the AppStore home screen, press `5` to open the share code input page. Type
 the code from CardputerZero Hub, then press `Enter` to jump to that app's detail
 page. From there, use the normal install/reinstall flow.
 

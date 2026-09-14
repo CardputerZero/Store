@@ -95,6 +95,10 @@ int main()
     const auto screenshots = detail_screenshot_paths(app_dir, app);
     assert(screenshots.size() == 1 && screenshots[0] == valid);
 
+    app.images = "," + valid;
+    assert(icon_file_path(app_dir, app).empty());
+    assert(detail_screenshot_paths(app_dir, app).size() == 1);
+
     unlink(valid.c_str());
     unlink(short_png.c_str());
     unlink(html_file.c_str());

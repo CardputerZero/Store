@@ -71,6 +71,7 @@ static json app(const std::string &id, const std::string &review) {
       {"version","1.2.0"},{"review_status",review},{"featured",id=="app-id"},{"categories",{"Utilities","Tools"}},
       {"i18n",{{"en",{{"title","Demo Local"},{"summary","Localized summary"}}},{"zh-CN",{{"title","演示"},{"summary","本地化摘要"}}}}},
       {"source",{{"repository","https://example.invalid/source"}}},
+      {"description","Full detailed description"},
       {"icon","https://assets.invalid/"+id+".png"},
       {"app",{{"dependencies",{"lib-one","lib-two"}},{"applaunch",{{"desktop_entry","applications/demo.desktop"},{"exec","/usr/bin/demo-package"}}}}},
       {"download",{{"type","deb"},{"package","demo-package"},{"url","https://example.invalid/demo.deb"},{"md5",getenv("FAKE_MD5")},{"size","42K"}}}};
@@ -117,8 +118,10 @@ static void registry_cases() {
     CHECK(call({"--set-region","moon"}).rc!=0); CHECK(call({"--set-region","CN"}).rc==0);
     CHECK(has(call({"--registry-config"}),"CONFIG\tCN\tCN\t1")); CHECK(call({"--set-region","default"}).rc==0);
     Result s=call({"--sync"}); CHECK(s.rc==0&&has(s,"SYNC\t1\t0\t0\t2"));
-    Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries")); CHECK(has(sum,"CAT\tUtilities"));
+    Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries")); CHECK(has(sum,"CAT\tUtilities")); CHECK(has(sum,"CAT\tInstalled"));
     CHECK(has(sum,"APP\tapp-id\tDemo Local\t1.2.0\tUtilities")); CHECK(has(sum,"\tTester\thttps://example.invalid/source\t"));
+    CHECK(has(sum,"Localized summary\\nFull detailed description"));
+    CHECK(has(sum,"\tdemo-package\t0"));
     CHECK(call({"--clear-registry-cache"}).rc==0);
     setenv("FAKE_DROP_DURING_ASSETS","1",1);
     Result dropped=call({"--sync"});

@@ -36,6 +36,8 @@ struct StoreApp {
     std::string updated_at;
     std::string review_status;
     bool installable = false;
+    std::string package;
+    int screenshot_count = -1;
 };
 
 struct RegistryEntry {

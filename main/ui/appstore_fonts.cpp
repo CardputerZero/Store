@@ -8,6 +8,8 @@
 #include "cp0_font_service.hpp"
 
 #include <cstdlib>
+#include <cstdio>
+#include <unistd.h>
 
 namespace {
 
@@ -51,6 +53,52 @@ lv_font_t *latin_font_for(const lv_font_t *font)
 #endif
 
 }  // namespace
+
+const lv_font_t *store_font(const std::string &text, uint16_t size, bool bold)
+{
+#if LV_USE_FREETYPE
+    // Keep Latin extensions and navigation glyphs in the Latin font.
+    bool cjk = false;
+    for (unsigned char ch : text) if (ch >= 0xE3) cjk = true;
+    const char *override = std::getenv(cjk ? "M5APPSTORE_CJK_FONT" :
+                                     (bold ? "M5APPSTORE_BOLD_FONT" : "M5APPSTORE_FONT"));
+    const char *locale = std::getenv("M5APPSTORE_LOCALE");
+    if (!locale || !locale[0]) locale = std::getenv("LANG");
+    const std::string language = locale ? locale : "";
+    const char *cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf";
+    if (language.rfind("ja", 0) == 0) cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf";
+    else if (language.rfind("ko", 0) == 0) cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf";
+    else if (language.rfind("zh_TW", 0) == 0 || language.rfind("zh-TW", 0) == 0)
+        cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf";
+    else if (language.rfind("zh_HK", 0) == 0 || language.rfind("zh-HK", 0) == 0)
+        cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKhk-Regular.otf";
+    const char *path = cjk ? cjk_path :
+        (bold ? "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" :
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    if (!cjk && (!bold || access(path, R_OK) != 0)) {
+        if (access(g_latin_sans_path, R_OK) == 0) path = g_latin_sans_path;
+        else path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    }
+    if (override && override[0]) path = override;
+    if (cjk && access(path, R_OK) != 0 && !(override && override[0])) {
+        static bool reported = false;
+        if (!reported) {
+            std::fprintf(stderr, "[Store UI] Missing regional font %s; using bundled font. Set M5APPSTORE_CJK_FONT to the regional font file.\n", path);
+            reported = true;
+        }
+        path = g_cjk_sans_path;
+    }
+    lv_font_t *selected = cp0_fonts().get(path, size);
+    if (!cjk && selected != cp0_fonts().fallback(size)) {
+        lv_font_t *fallback = cp0_fonts().get(g_cjk_sans_path, size);
+        if (fallback != cp0_fonts().fallback(size)) selected->fallback = fallback;
+    }
+    return selected;
+#else
+    (void)bold;
+    return font_for_text(text, cp0_fonts().fallback(size));
+#endif
+}
 
 #if LV_USE_FREETYPE
 void init_runtime_fonts(const std::string &app_dir)

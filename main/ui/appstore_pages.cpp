@@ -39,6 +39,39 @@ lv_obj_t *center_label(lv_obj_t *root, const std::string &text, int x, int y, in
     return obj;
 }
 
+void horizontal_label(lv_obj_t *root, const std::string &text, int x, int y,
+                      int width, int height, const lv_font_t *font,
+                      HorizontalMarquee &state, const std::string &key)
+{
+    state.select(key, lv_tick_get());
+    lv_obj_t *viewport = lv_obj_create(root);
+    lv_obj_remove_style_all(viewport);
+    lv_obj_set_pos(viewport, x, y);
+    lv_obj_set_size(viewport, width, height);
+    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+    // A content-sized, single-line label never starts LVGL's vertical marquee.
+    lv_obj_t *content = label(viewport, text, 0, 0, LV_SIZE_CONTENT,
+                              font->line_height, font, 0xFFFFFF, LV_LABEL_LONG_CLIP);
+    lv_obj_update_layout(content);
+    const int distance = lv_obj_get_width(content) - width;
+    if (distance <= 0) return;
+    lv_obj_set_x(content, state.offset(lv_tick_get(), distance));
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, content);
+    lv_anim_set_user_data(&animation, &state);
+    lv_anim_set_values(&animation, 0, 1000);
+    lv_anim_set_duration(&animation, 1000);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        auto *content = static_cast<lv_obj_t *>(anim->var);
+        auto *state = static_cast<HorizontalMarquee *>(lv_anim_get_user_data(anim));
+        const int distance = lv_obj_get_width(content) - lv_obj_get_width(lv_obj_get_parent(content));
+        lv_obj_set_x(content, state->offset(lv_tick_get(), distance));
+    });
+    lv_anim_start(&animation);
+}
+
 void strong_label(lv_obj_t *root, const std::string &text, int x, int y, int w, int h,
                   const lv_font_t *font, uint32_t color,
                   lv_label_long_mode_t mode = LV_LABEL_LONG_DOT)
@@ -85,74 +118,6 @@ void set_progress_scan_x(void *object, int32_t x)
     lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
 }
 
-void set_description_y(void *object, int32_t y)
-{
-    lv_obj_set_y(static_cast<lv_obj_t *>(object), y);
-}
-
-std::string joined_description(const std::vector<std::string> &lines, int start)
-{
-    if (lines.empty()) return "-";
-    std::string text;
-    for (size_t offset = 0; offset < lines.size(); ++offset) {
-        const size_t index = (static_cast<size_t>(std::max(0, start)) + offset) % lines.size();
-        if (!text.empty()) text += '\n';
-        text += lines[index];
-    }
-    return text;
-}
-
-void description_view(lv_obj_t *root, const AppDetailViewModel &model,
-                      const lv_font_t *font)
-{
-    constexpr int kLineSpace = 5;
-    constexpr int kVisibleLines = 3;
-    constexpr int kContentX = 50;
-    constexpr int kContentY = 87;
-    constexpr int kContentWidth = 260;
-    const int viewport_height =
-        kVisibleLines * font->line_height + (kVisibleLines - 1) * kLineSpace;
-    lv_obj_t *viewport = lv_obj_create(root);
-    lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, kContentX, kContentY);
-    lv_obj_set_size(viewport, kContentWidth, viewport_height);
-    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
-
-    const std::string description = joined_description(
-        model.description_lines, model.description_start);
-    const bool loops = model.description_lines.size() > kVisibleLines;
-    const std::string separator = "------------------------------";
-    const std::string block = description + "\n" + separator;
-    const std::string text = loops
-        ? block + "\n" + block + "\n" + block
-        : description;
-
-    lv_obj_t *content = lv_label_create(viewport);
-    lv_obj_set_pos(content, 0, 0);
-    lv_obj_set_width(content, kContentWidth);
-    lv_obj_set_height(content, LV_SIZE_CONTENT);
-    lv_obj_set_style_text_font(content, font_for_text(text, font), 0);
-    lv_obj_set_style_text_color(content, lv_color_hex(0xB8B8B8), 0);
-    lv_obj_set_style_text_letter_space(content, 0, 0);
-    lv_obj_set_style_text_line_space(content, kLineSpace, 0);
-    lv_label_set_long_mode(content, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(content, text.c_str());
-    if (!loops) return;
-
-    const int block_lines = static_cast<int>(model.description_lines.size()) + 1;
-    const int block_height = block_lines * (font->line_height + kLineSpace);
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, content);
-    lv_anim_set_values(&animation, 0, -block_height);
-    lv_anim_set_duration(&animation, std::max(4000, block_lines * 1100));
-    lv_anim_set_delay(&animation, 1400);
-    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&animation, lv_anim_path_linear);
-    lv_anim_set_exec_cb(&animation, set_description_y);
-    lv_anim_start(&animation);
-}
-
 void modal_backdrop(lv_obj_t *root)
 {
     lv_obj_t *obj = lv_obj_create(root);
@@ -183,7 +148,7 @@ void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
     if (selected)
         box(root, x + 3, y + 5, 4, 4, focused ? 0xCCCC33 : 0x58A6FF,
             focused ? 0xCCCC33 : 0x58A6FF, 0, 2);
-    label(root, text, x + 15, y, 70, 12, &lv_font_montserrat_10, text_color,
+    label(root, text, x + 15, y, text == "Default" ? 72 : 44, 18, store_font(text, 12), text_color,
           LV_LABEL_LONG_DOT);
 }
 
@@ -281,43 +246,30 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
+    box(root, 0, 20, 320, 150, 0x081010, 0x081010, 0);
     draw_category();
     draw_icon();
+    label(root, "In category: " + std::to_string(model.show_empty ? 0 : model.selected_index + 1) +
+          "/" + std::to_string(model.app_count), 138, 26, 116, 18,
+          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
+    label(root, "All: " + std::to_string(model.total_count), 256, 26, 64, 18,
+          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
     if (model.show_empty) {
-        strong_label(root, "NO APPS", 106, 76, 130, 24, &lv_font_montserrat_20, 0xFFFFFF);
+        label(root, model.empty_message, 137, 76, 178, 40,
+              store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        const int y_pos[] = {43, 59, 74, 108, 123};
-        const lv_font_t *fonts[] = {&lv_font_montserrat_10, &lv_font_montserrat_12,
-            &lv_font_montserrat_20, &lv_font_montserrat_12, &lv_font_montserrat_10};
-        const uint32_t colors[] = {0x3D3D3D, 0x575757, 0xFFFFFF, 0x575757, 0x3D3D3D};
-        for (const auto &row : model.rows) {
-            const std::string text = appstore::upper_ascii(row.name);
-            const lv_font_t *font = context.font_for_text(text, fonts[row.row]);
-            const lv_label_long_mode_t name_mode =
-                row.selected && appstore::utf8_display_width(text) > 12
-                    ? LV_LABEL_LONG_SCROLL_CIRCULAR
-                    : LV_LABEL_LONG_CLIP;
-            strong_label(root, text, 106, y_pos[row.row], row.selected ? 144 : 130,
-                         row.selected ? 24 : 16, font, colors[row.row],
-                         name_mode);
-            if (row.selected) {
-                strong_label(root, "V" + appstore::one_line(row.version.empty() ? "0" : row.version, 6),
-                             264, y_pos[row.row] + 3, 52, 16, &lv_font_montserrat_14,
-                             0x8B8B8B, LV_LABEL_LONG_DOT);
-                const std::string author = row.author.empty() ? "-" : row.author;
-                strong_label(root, author,
-                             109, y_pos[row.row] + 22, 190, 12,
-                             &lv_font_montserrat_10, 0xBDBDBD,
-                             appstore::utf8_display_width(author) > 28
-                                 ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_CLIP);
-            }
-        }
-        right_strong_label(root, std::to_string(model.selected_index + 1) + "/" +
-                           std::to_string(model.app_count), 249, 123, 58, 15,
-                           &lv_font_montserrat_14, 0xFFFFFF);
+        horizontal_label(root, model.name, 137, 62, 178, 27,
+                         store_font(model.name, 20, true), title_marquee_, model.name);
+        label(root, model.version, 137, 90, 66, 22,
+              store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        horizontal_label(root, model.author, 207, 90, 108, 22,
+                         store_font(model.author, 14), author_marquee_, model.name + model.author);
+        label(root, model.size, 137, 110, 68, 22,
+              store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        label(root, model.updated, 207, 110, 110, 22,
+              store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
     }
-    if (model.show_status) scrolling_status_label(root, model.status, 90, 139, 220, 12);
+    if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
     draw_shortcuts();
 }
 
@@ -395,62 +347,90 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
 }
 
 void AppDetailPage::render(const PageRenderContext &context, const AppDetailViewModel &model,
+                           DetailMediaState &media, const std::vector<std::string> &screenshots,
+                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                            const std::function<void(const appstore::StoreApp &)> &draw_shortcuts)
 {
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
+    constexpr uint32_t background = 0x081010;
+    constexpr uint32_t blue = 0x0099DD;
+    constexpr int viewport_height = 129;
+    box(root, 0, 20, 320, 150, background, background, 0);
     if (!model.has_app) {
-        label(root, "No selected app", 10, 50, 304, 14, &lv_font_montserrat_12, 0xE6EDF3);
+        label(root, "No selected app", 10, 50, 304, 20, store_font("", 12), 0xFFFFFF);
         return;
     }
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    lv_obj_t *title = label(root, model.title, 8, 24, 304, 16,
-          context.font_for_text(model.title, &lv_font_montserrat_12), 0xFFFFFF,
-          LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_style_anim_duration(title, 5000, LV_PART_MAIN | LV_STATE_DEFAULT);
-    label(root, "STATE", 10, 48, 46, 12, &lv_font_montserrat_10, 0x58A6FF);
-    label(root, model.state, 62, 47, 94, 14, &lv_font_montserrat_12,
-          model.app.installed ? 0xCCCC33 : 0xE6EDF3, LV_LABEL_LONG_DOT);
-    label(root, "SIZE", 164, 48, 42, 12, &lv_font_montserrat_10, 0x58A6FF);
-    label(root, model.app.size, 212, 47, 98, 14, &lv_font_montserrat_12,
-          0xE6EDF3, LV_LABEL_LONG_DOT);
-    label(root, "UPDATED", 10, 67, 46, 12, &lv_font_montserrat_10, 0x58A6FF);
-    label(root, model.updated, 62, 66, 94, 14,
-          context.font_for_text(model.updated, &lv_font_montserrat_12), 0xE6EDF3,
-          LV_LABEL_LONG_DOT);
-    label(root, "AUTHOR", 164, 67, 42, 12, &lv_font_montserrat_10, 0x58A6FF);
-    const std::string author = model.app.author.empty() ? "-" : model.app.author;
-    label(root, author, 212, 66, 98, 14,
-          context.font_for_text(author, &lv_font_montserrat_12), 0xE6EDF3,
-          appstore::utf8_display_width(author) > 15
-              ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
-    label(root, "DESC", 10, 88, 38, 12, &lv_font_montserrat_10, 0x58A6FF);
+    // Clip the entire detail document between the system bar and fixed action row.
+    lv_obj_t *viewport = lv_obj_create(root);
+    lv_obj_remove_style_all(viewport);
+    lv_obj_set_pos(viewport, 0, 20);
+    lv_obj_set_size(viewport, 320, viewport_height);
+    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *document = lv_obj_create(viewport);
+    lv_obj_remove_style_all(document);
+    lv_obj_set_width(document, 320);
+    lv_obj_clear_flag(document, LV_OBJ_FLAG_SCROLLABLE);
+
+    auto text = [&](const std::string &value, int x, int y, int width,
+                    int size, uint32_t color, bool wrap = false) {
+        return label(document, value, x, y, width, wrap ? LV_SIZE_CONTENT : size + 6,
+                     store_font(value, size), color,
+                     wrap ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
+    };
+    box(document, 0, 0, 320, 22, 0x007AC2, 0x007AC2, 0);
+    auto header_text = [&](const std::string &value, int x, int width) {
+        const lv_font_t *font = store_font(value, 14);
+        // Center the line box, with a one-pixel optical correction for the baseline.
+        const int y = std::max(0, (22 - static_cast<int>(font->line_height)) / 2 + 1);
+        return label(document, value, x, y, width, font->line_height,
+                     font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+    };
+    header_text(model.app.name, 16, 120);
+    header_text(model.app.version, 142, 78);
+    auto *author = header_text(model.app.author.empty() ? "-" : model.app.author, 226, 84);
+    lv_obj_set_style_text_align(author, LV_TEXT_ALIGN_RIGHT, 0);
+
+    text("State", 10, 24, 48, 12, blue);
+    text(model.state, 60, 24, 96, 12, 0xFFFFFF);
+    text("Size", 160, 24, 48, 12, blue);
+    text(model.app.size, 210, 24, 105, 12, 0xFFFFFF);
+    text("Updated", 10, 41, 48, 10, blue);
+    text(model.updated, 60, 41, 96, 10, 0xFFFFFF);
+    text("Package", 160, 41, 48, 10, blue);
+    text(model.app.package.empty() ? "-" : model.app.package, 210, 41, 105, 10, 0xFFFFFF);
+    text("Category", 10, 59, 48, 10, blue);
+    auto *categories = text(model.categories, 60, 59, 250, 10, 0xFFFFFF, true);
+    lv_obj_update_layout(categories);
+    const int description_y = std::max(77, 59 + lv_obj_get_height(categories) + 6);
+    text("Desc", 10, description_y, 48, 12, blue);
+    auto *description = text(model.description, 60, description_y, 250, 12, 0xFFFFFF, true);
+    lv_obj_set_style_text_line_space(description, 1, 0);
+    lv_obj_update_layout(description);
+    int bottom = description_y + lv_obj_get_height(description);
     if (model.show_status) {
-        box(root, 50, 87, 260, 46, 0x0D1117, 0x0D1117, 0);
-        lv_obj_t *status = label(root, model.status, 50, 87, 260, 46,
-                                 &lv_font_montserrat_12, 0xCCCC33,
-                                 LV_LABEL_LONG_SCROLL_CIRCULAR);
-        lv_obj_set_style_anim_duration(status, 4000, LV_PART_MAIN | LV_STATE_DEFAULT);
-    } else {
-        const std::string description = joined_description(
-            model.description_lines, model.description_start);
-        description_view(root, model,
-                         context.font_for_text(description, &lv_font_montserrat_12));
+        auto *status = text(model.status, 60, bottom + 6, 250, 12, 0xCCCC33, true);
+        lv_obj_update_layout(status);
+        bottom += 6 + lv_obj_get_height(status);
     }
-    if (model.job_running) {
-        box(root, 10, 135, 300, 5, 0x30363D, 0x30363D, 0);
-        if (model.job_progress >= 0)
-            box(root, 10, 135, std::max(2, std::min(300, model.job_progress * 3)), 5,
-                0xCCCC33, 0xCCCC33, 0);
-        else
-            box(root, 10 + static_cast<int>((lv_tick_get() / 120) % 260), 135, 40, 5,
-                0xCCCC33, 0xCCCC33, 0);
-        label(root, appstore::one_line(model.status.empty() ? "Working..." : model.status, 54),
-              10, 143, 300, 12, &lv_font_montserrat_10, 0xCCCC33, LV_LABEL_LONG_DOT);
-        return;
+    media.normalize_images(model.app.id, static_cast<int>(screenshots.size()));
+    if (!screenshots.empty()) {
+        const int shot_y = bottom + 8;
+        const int index = media.image_index();
+        // One complete 160 x 85 preview and a glimpse of the next image.
+        draw_thumbnail(document, screenshots[index], 20, shot_y);
+        if (screenshots.size() > 1) {
+            draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
+            text("‹", 5, shot_y + 30, 14, 24, blue);
+            text("›", 304, shot_y + 30, 14, 24, blue);
+        }
+        bottom = shot_y + 85;
     }
+    bottom += 8;
+    lv_obj_set_height(document, bottom);
+    media.normalize_page(model.app.id, bottom, viewport_height);
+    lv_obj_set_y(document, -media.page_scroll());
     draw_shortcuts(model.app);
 }
 
@@ -607,43 +587,48 @@ void StoreSettingsPage::render(const PageRenderContext &context,
     lv_obj_t *root = screen();
     box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
     box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, "Registry Settings", 8, 24, 180, 15, &lv_font_montserrat_12, 0xFFFFFF);
-    label(root, "Esc Back", 258, 24, 56, 14, &lv_font_montserrat_10, 0xAECBFA);
+    label(root, "Registry Settings", 8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
+    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
     const bool region_focused = model.focus == 0;
-    label(root, "REGION", 24, 45, 45, 12, &lv_font_montserrat_10,
+    label(root, "Region", 24, 46, 48, 18, store_font("", 12),
           region_focused ? 0xCCCC33 : 0x58A6FF);
-    radio_option(root, 76, 45, "Auto", model.region_code == "auto", region_focused);
-    radio_option(root, 142, 45, "Default", model.region_code == "default", region_focused);
-    radio_option(root, 234, 45, "CN", model.region_code == "CN", region_focused);
-    if (model.region_code == "auto")
-        label(root, "using " + model.active_region, 248, 58, 60, 12,
-              &lv_font_montserrat_10, 0x8B949E, LV_LABEL_LONG_DOT);
+    radio_option(root, 76, 46, "Auto", model.region_code == "auto", region_focused);
+    radio_option(root, 142, 46, "Default", model.region_code == "default", region_focused);
+    radio_option(root, 234, 46, "CN", model.region_code == "CN", region_focused);
     if (!model.has_entry) {
         label(root, model.loading ? "Loading registries..." : "No registries configured.",
-              10, 82, 300, 14, &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
+              24, 82, 272, 36, store_font("", 12), 0xB8B8B8, LV_LABEL_LONG_WRAP);
     } else {
         const auto &entry = model.entry;
+        const std::string source = model.region_code == "auto"
+            ? "Source (" + model.active_region + ")" : "Source";
+        label(root, source, 24, 68, 210, 18, store_font(source, 12),
+              model.focus == 1 ? 0xCCCC33 : 0x58A6FF, LV_LABEL_LONG_DOT);
         center_label(root, std::to_string(model.selected_index + 1) + "/" +
-                     std::to_string(model.entry_count), 250, 45, 42, 12,
-                     &lv_font_montserrat_10, 0x8B949E, LV_LABEL_LONG_DOT);
+                     std::to_string(model.entry_count), 248, 68, 48, 18,
+                     store_font("", 12), 0x8B949E, LV_LABEL_LONG_DOT);
         const uint32_t nav = model.focus == 1 ? 0xFF6A3D : 0x6E7681;
-        strong_label(root, "<", 8, 88, 12, 18, &lv_font_montserrat_20, nav);
-        strong_label(root, ">", 303, 88, 12, 18, &lv_font_montserrat_20, nav);
-        label(root, "SOURCE", 24, 62, 48, 12, &lv_font_montserrat_10,
-              model.focus == 1 ? 0xCCCC33 : 0x58A6FF);
-        strong_label(root, appstore::one_line(entry.name, 28), 24, 75, 210, 16,
-                     &lv_font_montserrat_12, 0xFFFFFF, LV_LABEL_LONG_DOT);
-        label(root, entry.count + " apps", 270, 75, 44, 12,
-              &lv_font_montserrat_10, 0xCCCC33, LV_LABEL_LONG_DOT);
-        label(root, entry.builtin ? "URL (region)" : "URL", 24, 96, 80, 12,
-              &lv_font_montserrat_10, 0x58A6FF);
-        box(root, 24, 109, 272, 26, 0x111923, 0x2A3A46, 1, 2);
-        label(root, entry.builtin ? model.registry_url : entry.url, 30, 112, 260, 20,
-              &lv_font_montserrat_10, 0xE6EDF3, LV_LABEL_LONG_WRAP);
+        label(root, "<", 6, 85, 16, 22, store_font("", 20), nav);
+        label(root, ">", 302, 85, 16, 22, store_font("", 20), nav);
+        horizontal_label(root, entry.name, 24, 86, 194, 20,
+                         store_font(entry.name, 14), source_marquee_, entry.url + entry.name);
+        lv_obj_t *count = label(root, entry.count + " apps", 224, 87, 72, 18,
+                               store_font("", 12), 0xCCCC33, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
+        label(root, "URL", 24, 111, 32, 18, store_font("", 12), 0x58A6FF);
+        box(root, 60, 108, 236, 24, 0x111923, 0x2A3A46, 1, 2);
+        const std::string url = entry.builtin ? model.registry_url : entry.url;
+        horizontal_label(root, url, 66, 112, 224, 18,
+                         store_font(url, 12), url_marquee_, url);
     }
-    if (!model.status.empty())
-        scrolling_status_label(root, model.status, 10, 138, 300, 12,
-                               model.status_is_error ? 0xF85149 : 0xCCCC33);
+    if (!model.status.empty()) {
+        // Keep the full status readable without taking space from the action row.
+        lv_obj_t *status = label(root, model.status, 10, 134, 300, 17,
+                                store_font(model.status, 12),
+                                model.status_is_error ? 0xF85149 : 0xCCCC33,
+                                LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_anim_duration(status, 8000, LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
 }
 
 void StoreSettingsPage::render_editor(const PageRenderContext &context,
@@ -655,25 +640,25 @@ void StoreSettingsPage::render_editor(const PageRenderContext &context,
     box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
     box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
     label(root, model.editing ? "Edit Registry" : "Add Registry",
-          8, 24, 180, 15, &lv_font_montserrat_12, 0xFFFFFF);
-    label(root, "Esc Back", 258, 24, 56, 14, &lv_font_montserrat_10, 0xAECBFA);
+          8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
+    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
 
-    label(root, "NAME", 10, 46, 50, 12, &lv_font_montserrat_10,
+    label(root, "Name", 10, 46, 50, 18, store_font("", 12),
           model.focus == 0 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 59, 300, 24, 0x111923,
+    box(root, 10, 65, 300, 24, 0x111923,
         model.focus == 0 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, appstore::one_line(model.name, 34), 16, 64, 288, 14,
-          &lv_font_montserrat_12, 0xE6EDF3, LV_LABEL_LONG_DOT);
+    label(root, model.name, 16, 68, 288, 18,
+          store_font(model.name, 12), 0xE6EDF3, LV_LABEL_LONG_DOT);
 
-    label(root, "URL", 10, 88, 50, 12, &lv_font_montserrat_10,
+    label(root, "URL", 10, 92, 50, 18, store_font("", 12),
           model.focus == 1 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 101, 300, 42, 0x111923,
+    box(root, 10, 110, 300, 35, 0x111923,
         model.focus == 1 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, model.url, 16, 105, 288, 34, &lv_font_montserrat_12,
+    label(root, model.url, 16, 113, 288, 28, store_font(model.url, 12),
           0xE6EDF3, LV_LABEL_LONG_WRAP);
 
-    center_label(root, "Esc Back   Tab Next   BS Delete   Enter Save",
-                 10, 153, 300, 12, &lv_font_montserrat_10, 0xCCCC33,
+    center_label(root, "Tab Next   BS Delete   Enter Save",
+                 10, 152, 300, 18, store_font("", 12), 0xCCCC33,
                  LV_LABEL_LONG_DOT);
 }
 

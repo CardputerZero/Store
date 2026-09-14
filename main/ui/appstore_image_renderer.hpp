@@ -22,6 +22,7 @@ public:
     bool draw_app_icon(lv_obj_t *root, const std::string &app_dir,
                        const appstore::StoreApp &app);
     bool draw_screenshot(lv_obj_t *root, const std::string &path);
+    bool draw_thumbnail(lv_obj_t *root, const std::string &path, int x, int y);
 
 private:
     const char *retain_source(std::string source);

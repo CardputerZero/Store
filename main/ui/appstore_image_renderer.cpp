@@ -46,7 +46,7 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
     const std::string path = icon_file_path(app_dir, app);
     if (path.empty()) return false;
-    constexpr int x = 10, y = 49, width = 68, height = 68;
+    constexpr int x = 39, y = 65, width = 60, height = 60;
     lv_obj_t *clip = lv_obj_create(root);
     lv_obj_remove_style_all(clip);
     lv_obj_set_pos(clip, x, y);
@@ -71,6 +71,37 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
     return true;
 #else
     (void)root; (void)app_dir; (void)app;
+    return false;
+#endif
+}
+
+bool AppStoreImageRenderer::draw_thumbnail(lv_obj_t *root, const std::string &path, int x, int y)
+{
+#if LV_USE_LODEPNG && LV_USE_FS_POSIX
+    if (path.empty()) return false;
+    constexpr int width = 160, height = 85;
+    lv_obj_t *clip = lv_obj_create(root);
+    lv_obj_remove_style_all(clip);
+    lv_obj_set_pos(clip, x, y);
+    lv_obj_set_size(clip, width, height);
+    lv_obj_clear_flag(clip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(clip, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(clip, LV_OPA_COVER, 0);
+    lv_obj_t *image = lv_image_create(clip);
+    lv_image_set_src(image, retain_source(lvgl_posix_src(path)));
+    lv_obj_update_layout(image);
+    const int image_width = lv_obj_get_width(image);
+    const int image_height = lv_obj_get_height(image);
+    if (image_width <= 0 || image_height <= 0) {
+        lv_obj_delete(clip);
+        return false;
+    }
+    const int scale = std::max(1, std::min(width * 256 / image_width, height * 256 / image_height));
+    lv_image_set_scale(image, static_cast<uint16_t>(scale));
+    lv_obj_set_pos(image, (width - image_width) / 2, (height - image_height) / 2);
+    return true;
+#else
+    (void)root; (void)path; (void)x; (void)y;
     return false;
 #endif
 }

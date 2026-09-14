@@ -46,16 +46,6 @@ std::string match_key(std::string value)
 
 } // namespace appstore
 
-namespace appstore_ui {
-
-std::vector<std::string> DetailActionController::description_lines(
-    const appstore::StoreApp &app)
-{
-    return appstore::wrap_display_text(app.description, 38);
-}
-
-} // namespace appstore_ui
-
 int main()
 {
     using namespace appstore_ui;
@@ -71,9 +61,8 @@ int main()
     }
     session.catalog.selected_index() = 0;
     auto catalog = factory.catalog(100, 6000);
-    assert(catalog.rows.size() == 5);
-    assert(catalog.rows[0].name == "App 5" && catalog.rows[0].row == 0);
-    assert(catalog.rows[2].name == "App 0" && catalog.rows[2].selected);
+    assert(catalog.name == "App 0");
+    assert(catalog.app_count == 7 && catalog.total_count == 7);
 
     auto &app = session.catalog.apps()[0];
     app.version = "2.0";
@@ -87,10 +76,25 @@ int main()
     app.name = "A very long application name that must stay intact";
     auto detail = factory.detail(&app, 100, 6000);
     assert(detail.state == "Installed 1.0");
-    assert(detail.installable && detail.description_lines.size() == 1);
-    assert(detail.app.size == "19.6M");
+    assert(detail.installable && detail.description == "Description");
+    assert(detail.app.size == "19.6 MB");
     assert(detail.updated == "2026-07-23 14:32");
     assert(detail.title == "A very long application name that must stay intact  2.0");
+
+    catalog = factory.catalog(100, 6000);
+    assert(catalog.version == "2.0");
+    assert(catalog.size == "19.6 MB");
+    assert(catalog.updated == "2026-07-23");
+    session.catalog.categories().push_back("Installed");
+    session.catalog.select_category_by_name("Installed");
+    session.catalog.rebuild_visible();
+    catalog = factory.catalog(100, 6000);
+    assert(catalog.app_count == 1 && catalog.total_count == 7);
+    app.installed = false;
+    session.catalog.rebuild_visible();
+    catalog = factory.catalog(100, 6000);
+    assert(catalog.show_empty && catalog.empty_message == "No installed apps");
+    app.installed = true;
 
     app.name = "Line one\nLine two";
     app.version = "2.0\tbeta";
@@ -101,7 +105,7 @@ int main()
 
     session.status.value() = "Refreshing";
     detail = factory.detail(&app, 101, 6000);
-    assert(detail.show_status && detail.description_lines.empty());
+    assert(detail.show_status && detail.description == "Description");
 
     package_job.running = true;
     package_job.action = "install";

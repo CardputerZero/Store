@@ -116,5 +116,18 @@ int main()
     assert(screenshot_app == "demo");
     assert(session.detail_media.loading());
 
+    session.detail_media.finish_loading("demo", false);
+    screenshot_app.clear();
+    controller.ensure_screenshots();
+    assert(screenshot_app.empty()); // Empty results must not trigger a fetch loop.
+    session.catalog.selected_app()->id = "no-shots";
+    session.catalog.selected_app()->screenshot_count = 0;
+    controller.ensure_screenshots();
+    assert(screenshot_app.empty());
+    session.catalog.selected_app()->id = "with-shots";
+    session.catalog.selected_app()->screenshot_count = 2;
+    controller.ensure_screenshots();
+    assert(screenshot_app == "with-shots" && session.detail_media.loading());
+
     std::cout << "detail action controller tests passed\n";
 }

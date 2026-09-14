@@ -27,18 +27,16 @@ struct InitializationProgressViewModel {
     std::vector<std::string> error_detail_lines;
 };
 
-struct CatalogRowViewModel {
+struct CatalogDisplayViewModel {
     std::string name;
     std::string version;
     std::string author;
-    bool selected = false;
-    int row = 0;
-};
-
-struct CatalogDisplayViewModel {
-    std::vector<CatalogRowViewModel> rows;
+    std::string size;
+    std::string updated;
+    std::string empty_message;
     int selected_index = 0;
     int app_count = 0;
+    int total_count = 0;
     bool show_empty = false;
     bool show_status = false;
     std::string status;
@@ -80,10 +78,8 @@ struct AppDetailViewModel {
     bool installable = false;
     bool show_status = false;
     std::string status;
-    std::vector<std::string> description_lines;
-    int description_start = 0;
-    int description_position = 0;
-    int description_page_count = 0;
+    std::string description;
+    std::string categories;
     bool job_running = false;
     int job_progress = -1;
 };

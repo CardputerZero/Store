@@ -30,8 +30,6 @@ public:
         start_screenshots_ = std::move(starter);
     }
 
-    static std::vector<std::string> description_lines(const appstore::StoreApp &app);
-
     void install(appstore::StoreApp *app);
     void reinstall(appstore::StoreApp *app);
     void upgrade(appstore::StoreApp *app);
@@ -43,7 +41,8 @@ public:
                            Screen origin_screen, int rc, const std::string &output);
     void cycle_screenshot(int delta, uint32_t now);
     bool open_screenshots(uint32_t now);
-    void scroll_description(int delta);
+    void ensure_screenshots();
+    void scroll_page(int delta);
 
 private:
     appstore::StoreApp *selected_app();

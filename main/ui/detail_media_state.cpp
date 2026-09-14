@@ -23,17 +23,6 @@ void DetailMediaState::normalize_images(const std::string &app_id, int image_cou
     }
 }
 
-void DetailMediaState::normalize_description(const std::string &app_id, int line_count,
-                                             int visible_lines)
-{
-    if (description_app_id_ != app_id) {
-        description_app_id_ = app_id;
-        description_scroll_ = 0;
-    }
-    const int max_scroll = std::max(0, line_count - visible_lines);
-    description_scroll_ = std::max(0, std::min(max_scroll, description_scroll_));
-}
-
 void DetailMediaState::cycle_image(int delta, int image_count)
 {
     if (image_count <= 0) return;
@@ -41,16 +30,26 @@ void DetailMediaState::cycle_image(int delta, int image_count)
     if (image_index_ < 0) image_index_ += image_count;
 }
 
-void DetailMediaState::scroll_description(int delta, int line_count, int visible_lines)
-{
-    const int max_scroll = std::max(0, line_count - visible_lines);
-    description_scroll_ = std::max(0, std::min(max_scroll, description_scroll_ + delta));
-}
-
 void DetailMediaState::show_overlay(uint32_t now)
 {
     overlay_visible_ = true;
     overlay_activity_tick_ = now;
+}
+
+void DetailMediaState::normalize_page(const std::string &app_id, int content_height,
+                                     int viewport_height)
+{
+    if (page_app_id_ != app_id) {
+        page_app_id_ = app_id;
+        page_scroll_ = 0;
+    }
+    page_max_scroll_ = std::max(0, content_height - viewport_height);
+    page_scroll_ = std::clamp(page_scroll_, 0, page_max_scroll_);
+}
+
+void DetailMediaState::scroll_page(int delta)
+{
+    page_scroll_ = std::clamp(page_scroll_ + delta * 24, 0, page_max_scroll_);
 }
 
 bool DetailMediaState::hide_overlay_if_elapsed(uint32_t now, uint32_t timeout_ms)
@@ -63,6 +62,7 @@ bool DetailMediaState::hide_overlay_if_elapsed(uint32_t now, uint32_t timeout_ms
 
 void DetailMediaState::begin_loading(const std::string &app_id)
 {
+    loading_app_id_ = app_id;
     image_app_id_ = app_id;
     image_index_ = 0;
     loading_ = true;
@@ -71,7 +71,7 @@ void DetailMediaState::begin_loading(const std::string &app_id)
 
 void DetailMediaState::finish_loading(const std::string &app_id, bool failed)
 {
-    if (image_app_id_ != app_id) return;
+    if (loading_app_id_ != app_id) return;
     loading_ = false;
     load_failed_ = failed;
 }

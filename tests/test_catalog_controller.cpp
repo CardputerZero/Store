@@ -70,6 +70,7 @@ int main()
     assert(session.catalog.selected_index() == 0);
     controller.select_adjacent_category(1);
     assert(session.catalog.current_category_name() == "Tools");
+    assert(!session.catalog.select_category_by_name("Installed"));
     controller.select_adjacent_category(1);
     assert(session.catalog.current_category_name() == "Recommended");
 
@@ -101,6 +102,32 @@ int main()
     share_code.input().clear();
     controller.submit_share_code();
     assert(share_code.message() == "Type a share code first.");
+
+    summary.apps[1].installed = true;
+    controller.apply_summary(summary);
+    assert(session.catalog.select_category_by_name("Installed"));
+    session.catalog.rebuild_visible();
+    assert(session.catalog.current_category_name() == "Installed");
+    assert(session.catalog.visible().size() == 1);
+    assert(session.catalog.selected_app()->id == "a-id");
+    summary.apps[1].installed = false;
+    controller.apply_summary(summary);
+    assert(session.catalog.current_category_name() == "All");
+    assert(!session.catalog.select_category_by_name("Installed"));
+    assert(session.catalog.visible().size() == 3);
+
+    // Ignore even an explicitly supplied empty Installed category from a registry.
+    summary.categories.insert(summary.categories.begin() + 2, "Installed");
+    controller.apply_summary(summary);
+    assert(!session.catalog.select_category_by_name("Installed"));
+    session.catalog.select_category_by_name("Tools");
+    summary.apps[1].installed = true;
+    controller.apply_summary(summary);
+    assert(session.catalog.current_category_name() == "Tools");
+    assert(std::count(session.catalog.categories().begin(), session.catalog.categories().end(), "Installed") == 1);
+    summary.apps[1].installed = false;
+    controller.apply_summary(summary);
+    assert(session.catalog.current_category_name() == "Tools");
 
     std::cout << "catalog controller tests passed\n";
 }

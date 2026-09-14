@@ -7,6 +7,8 @@
 #pragma once
 
 #include "appstore_view_models.hpp"
+#include "detail_media_state.hpp"
+#include "horizontal_marquee.hpp"
 #include "ui_app_page.hpp"
 
 #include <functional>
@@ -49,6 +51,9 @@ public:
                            const TextEntryViewModel &model);
     void render_search(const PageRenderContext &context,
                        const SearchPageViewModel &model);
+private:
+    HorizontalMarquee title_marquee_;
+    HorizontalMarquee author_marquee_;
 };
 
 class AppDetailPage : public AppStoreUiPage
@@ -56,6 +61,8 @@ class AppDetailPage : public AppStoreUiPage
 public:
     void render(const PageRenderContext &context,
                 const AppDetailViewModel &model,
+                DetailMediaState &media, const std::vector<std::string> &screenshots,
+                const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                 const std::function<void(const appstore::StoreApp &)> &draw_shortcuts);
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);
@@ -75,6 +82,9 @@ public:
                 const StoreSettingsViewModel &model);
     void render_editor(const PageRenderContext &context,
                        const RegistryEditorViewModel &model);
+private:
+    HorizontalMarquee source_marquee_;
+    HorizontalMarquee url_marquee_;
 };
 
 } // namespace appstore_ui

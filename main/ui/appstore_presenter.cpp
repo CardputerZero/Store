@@ -15,9 +15,9 @@
 namespace appstore_ui {
 namespace {
 
-constexpr int kHomeIconX = 10;
-constexpr int kHomeIconY = 49;
-constexpr int kHomeIconSize = 68;
+constexpr int kHomeIconX = 39;
+constexpr int kHomeIconY = 65;
+constexpr int kHomeIconSize = 60;
 constexpr uint32_t kStatusVisibleMs = 6000;
 
 lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y, int w, int h,
@@ -69,20 +69,6 @@ void box(lv_obj_t *root, int x, int y, int w, int h, uint32_t color,
     lv_obj_set_style_border_color(obj, lv_color_hex(border), 0);
 }
 
-void transparent_frame(lv_obj_t *root, int x, int y, int w, int h,
-                       uint32_t border, int border_width, int radius)
-{
-    lv_obj_t *obj = lv_obj_create(root);
-    lv_obj_remove_style_all(obj);
-    lv_obj_set_pos(obj, x, y);
-    lv_obj_set_size(obj, w, h);
-    lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(obj, border_width, 0);
-    lv_obj_set_style_border_color(obj, lv_color_hex(border), 0);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-}
-
 std::string app_initial(const appstore::StoreApp &app)
 {
     for (char ch : app.name) {
@@ -129,23 +115,23 @@ void AppStorePresenter::prepare(AppStoreUiPage &page)
 
 void AppStorePresenter::draw_category_selector(lv_obj_t *root)
 {
-    if (!images_.draw_packaged(root, "store_arrow_left.png", 197, 34))
-        strong_label(root, "<", 198, 32, 14, 18, &lv_font_montserrat_20, 0xFF6A3D);
+    if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
+        strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    const lv_label_long_mode_t mode = appstore::utf8_display_width(category) > 8
-        ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_CLIP;
-    center_strong_label(root, category, 212, 32, 82, 16,
-                        &lv_font_montserrat_14, 0xFFFFFF, mode);
-    if (!images_.draw_packaged(root, "store_arrow_right.png", 298, 34))
-        strong_label(root, ">", 300, 32, 14, 18, &lv_font_montserrat_20, 0xFF6A3D);
+    lv_obj_t *name = label(root, category, 28, 24, 86, 20,
+                          store_font(category, 14, true), 0xFFFFFF,
+                          LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
+        strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
 }
 
 void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
                                               const appstore::StoreApp *app)
 {
     const int arrow_x = kHomeIconX + (kHomeIconSize - 14) / 2;
-    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 36))
-        center_strong_label(root, "^", kHomeIconX + 20, 35, 28, 18,
+    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 48))
+        center_strong_label(root, "^", kHomeIconX + 16, 46, 28, 18,
                             &lv_font_montserrat_20, 0xFF6A3D);
     if (!app) {
         center_strong_label(root, "-", kHomeIconX + 22, kHomeIconY + 24, 24, 22,
@@ -155,10 +141,8 @@ void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
                             kHomeIconSize, 28, &lv_font_montserrat_20,
                             app->installed ? 0x52D05D : 0xFFFFFF);
     }
-    transparent_frame(root, kHomeIconX, kHomeIconY, kHomeIconSize, kHomeIconSize,
-                      0x6E7681, 2, 10);
-    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 123))
-        center_strong_label(root, "v", kHomeIconX + 20, 123, 28, 18,
+    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 136))
+        center_strong_label(root, "v", kHomeIconX + 16, 134, 28, 18,
                             &lv_font_montserrat_20, 0xFF6A3D);
 }
 
@@ -191,9 +175,15 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
         }
         case Screen::Detail: {
             appstore::StoreApp *selected = catalog_.ensure_selected();
+            const auto screenshots = selected ? detail_screenshot_paths(session_.app_dir, *selected)
+                                              : std::vector<std::string>{};
             detail_page_.render(
                 context(detail_page_),
                 view_models_.detail(selected, lv_tick_get(), kStatusVisibleMs),
+                session_.detail_media, screenshots,
+                [this](lv_obj_t *parent, const std::string &path, int x, int y) {
+                    return images_.draw_thumbnail(parent, path, x, y);
+                },
                 [this](const appstore::StoreApp &app) {
                     AppStoreShortcutBar::render_detail(
                         detail_page_.screen(), session_.app_dir, app);

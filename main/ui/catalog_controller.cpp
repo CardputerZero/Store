@@ -27,7 +27,10 @@ StoreApp *CatalogController::ensure_selected()
 {
     StoreApp *app = session_.catalog.selected_app();
     if (app) return app;
-    if (!session_.catalog.apps().empty()) {
+    if (session_.catalog.current_category_name() == "Installed" &&
+        !session_.catalog.apps().empty()) return nullptr;
+    if (!session_.catalog.apps().empty() &&
+        session_.catalog.current_category_name() != "Installed") {
         session_.catalog.select_default_category();
         session_.catalog.rebuild_visible();
         session_.catalog.selected_index() = 0;
@@ -126,14 +129,20 @@ void CatalogController::apply_summary(const SummaryData &summary)
         session_.catalog.apps() = summary.apps;
         sort_apps(session_.catalog.apps(), session_.catalog.sort_rule());
     }
+    auto &categories = session_.catalog.categories();
+    categories.erase(std::remove(categories.begin(), categories.end(), "Installed"), categories.end());
+    const auto &apps = session_.catalog.apps();
+    if (std::any_of(apps.begin(), apps.end(), [](const StoreApp &app) { return app.installed; })) {
+        const auto all = std::find(categories.begin(), categories.end(), "All");
+        categories.insert(all == categories.end() ? categories.end() : all + 1, "Installed");
+    }
     if (!session_.catalog.default_category_applied()) {
         session_.catalog.select_default_category();
         session_.catalog.default_category_applied() = true;
         session_.catalog.selected_index() = 0;
     } else if (!previous_category.empty() &&
                session_.catalog.select_category_by_name(previous_category)) {
-    } else if (session_.catalog.category_index() >=
-               static_cast<int>(session_.catalog.categories().size())) {
+    } else {
         session_.catalog.select_default_category();
     }
     session_.catalog.rebuild_visible();

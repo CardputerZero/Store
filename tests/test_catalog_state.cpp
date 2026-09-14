@@ -48,5 +48,15 @@ int main()
     state.rebuild_visible();
     assert(state.visible().size() == 1);
     assert(state.selected_app() && state.selected_app()->id == "utility");
+    state.apps()[0].installed = true;
+    state.categories().push_back("Installed");
+    state.apps()[1].categories.push_back("Installed");
+    assert(state.select_category_by_name("Installed"));
+    state.rebuild_visible();
+    assert(state.visible().size() == 1);
+    assert(state.selected_app()->id == "recommended");
+    state.apps()[0].installed = false;
+    state.rebuild_visible();
+    assert(state.visible().empty() && !state.selected_app());
     return 0;
 }
