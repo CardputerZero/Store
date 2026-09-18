@@ -44,6 +44,7 @@ private:
     StoreSettingsPage &settings_page_;
     AppStoreImageRenderer &images_;
     std::function<void()> draw_system_bar_;
+    lv_obj_t *rendered_root_ = nullptr;
 };
 
 } // namespace appstore_ui

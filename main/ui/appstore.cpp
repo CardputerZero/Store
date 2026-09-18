@@ -45,7 +45,6 @@ using namespace appstore_ui;
 
 constexpr int kScreenWidth = 320;
 constexpr int kScreenHeight = 170;
-constexpr uint32_t kEscLongPressMs = 1200;
 constexpr uint32_t kJobStartDelayMs = 80;
 constexpr uint32_t kJobPollIntervalMs = 250;
 constexpr uint32_t kTopStatusRefreshMs = 5000;

@@ -8,15 +8,18 @@
 #include "cp0_font_service.hpp"
 
 #include <cstdlib>
-#include <cstdio>
-#include <unistd.h>
 
 namespace {
 
-constexpr const char *kLatinSansFont = "/usr/share/APPLaunch/share/font/DejaVuSans.ttf";
-constexpr const char *kCjkSansFont = "/usr/share/APPLaunch/share/font/NotoSansCJK-Regular.ttc";
-constexpr const char *kLatinSerifFont = "/usr/share/APPLaunch/share/font/DejaVuSerif.ttf";
-constexpr const char *kCjkSerifFont = "/usr/share/APPLaunch/share/font/NotoSerifCJK-Regular.ttc";
+// Keep these as APPLaunch resource names instead of filesystem paths.  The
+// launcher font service resolves them against the active platform's font
+// resource directory (device or SDL), so Store does not depend on an image's
+// package layout.
+constexpr const char *kLatinSansFont = "DejaVuSans.ttf";
+constexpr const char *kCjkSansFont = "NotoSansCJK-Regular.ttc";
+constexpr const char *kLegacyCjkSansFont = "AlibabaPuHuiTi-3-55-Regular.ttf";
+constexpr const char *kLatinSerifFont = "DejaVuSerif.ttf";
+constexpr const char *kCjkSerifFont = "NotoSerifCJK-Regular.ttc";
 
 #if LV_USE_FREETYPE
 const char *g_latin_sans_path = kLatinSansFont;
@@ -46,9 +49,25 @@ uint16_t font_size(int slot)
     return sizes[slot];
 }
 
-lv_font_t *latin_font_for(const lv_font_t *font)
+bool contains_cjk(const std::string &text)
 {
-    return g_latin_fonts[font_slot(font)];
+    // CJK code points used by Store encode with a leading UTF-8 byte >= E3.
+    // Latin, Greek, Cyrillic and the UI symbols used here stay below it.
+    for (unsigned char ch : text) {
+        if (ch >= 0xE3) return true;
+    }
+    return false;
+}
+
+lv_font_t *load_cjk_font(const char *font_name, uint16_t size,
+                         lv_freetype_font_style_t style)
+{
+    lv_font_t *font = cp0_fonts().get(font_name, size, style);
+    if (font == cp0_fonts().fallback(size) &&
+        std::string(font_name) == kCjkSansFont) {
+        font = cp0_fonts().get(kLegacyCjkSansFont, size, style);
+    }
+    return font;
 }
 #endif
 
@@ -57,40 +76,27 @@ lv_font_t *latin_font_for(const lv_font_t *font)
 const lv_font_t *store_font(const std::string &text, uint16_t size, bool bold)
 {
 #if LV_USE_FREETYPE
-    // Keep Latin extensions and navigation glyphs in the Latin font.
-    bool cjk = false;
-    for (unsigned char ch : text) if (ch >= 0xE3) cjk = true;
+    const bool cjk = contains_cjk(text);
     const char *override = std::getenv(cjk ? "M5APPSTORE_CJK_FONT" :
                                      (bold ? "M5APPSTORE_BOLD_FONT" : "M5APPSTORE_FONT"));
-    const char *locale = std::getenv("M5APPSTORE_LOCALE");
-    if (!locale || !locale[0]) locale = std::getenv("LANG");
-    const std::string language = locale ? locale : "";
-    const char *cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf";
-    if (language.rfind("ja", 0) == 0) cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf";
-    else if (language.rfind("ko", 0) == 0) cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf";
-    else if (language.rfind("zh_TW", 0) == 0 || language.rfind("zh-TW", 0) == 0)
-        cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf";
-    else if (language.rfind("zh_HK", 0) == 0 || language.rfind("zh-HK", 0) == 0)
-        cjk_path = "/usr/share/fonts/opentype/noto/NotoSansCJKhk-Regular.otf";
-    const char *path = cjk ? cjk_path :
-        (bold ? "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" :
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-    if (!cjk && (!bold || access(path, R_OK) != 0)) {
-        if (access(g_latin_sans_path, R_OK) == 0) path = g_latin_sans_path;
-        else path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+
+    // The Store reference UI is laid out against LVGL's built-in Montserrat
+    // metrics.  Keep the default Latin path deterministic on both SDL and the
+    // device; only use FreeType when an explicit override is requested.
+    if (!cjk && !(override && override[0])) {
+        return cp0_fonts().fallback(size);
     }
-    if (override && override[0]) path = override;
-    if (cjk && access(path, R_OK) != 0 && !(override && override[0])) {
-        static bool reported = false;
-        if (!reported) {
-            std::fprintf(stderr, "[Store UI] Missing regional font %s; using bundled font. Set M5APPSTORE_CJK_FONT to the regional font file.\n", path);
-            reported = true;
-        }
-        path = g_cjk_sans_path;
-    }
-    lv_font_t *selected = cp0_fonts().get(path, size);
+
+    const char *font_name = override && override[0]
+        ? override
+        : (cjk ? g_cjk_sans_path : g_latin_sans_path);
+    const auto style = LV_FREETYPE_FONT_STYLE_NORMAL;
+    lv_font_t *selected = cjk
+        ? load_cjk_font(font_name, size, style)
+        : cp0_fonts().get(font_name, size, style);
     if (!cjk && selected != cp0_fonts().fallback(size)) {
-        lv_font_t *fallback = cp0_fonts().get(g_cjk_sans_path, size);
+        lv_font_t *fallback = load_cjk_font(
+            g_cjk_sans_path, size, LV_FREETYPE_FONT_STYLE_NORMAL);
         if (fallback != cp0_fonts().fallback(size)) selected->fallback = fallback;
     }
     return selected;
@@ -126,7 +132,8 @@ void init_runtime_fonts(const std::string &app_dir)
     }
     for (int slot = 0; slot < 4; ++slot) {
         const uint16_t size = font_size(slot);
-        g_cjk_fonts[slot] = cp0_fonts().get(g_cjk_sans_path, size);
+        g_cjk_fonts[slot] = load_cjk_font(
+            g_cjk_sans_path, size, LV_FREETYPE_FONT_STYLE_NORMAL);
         g_latin_fonts[slot] = cp0_fonts().get(g_latin_sans_path, size);
         g_cjk_serif_fonts[slot] = cp0_fonts().get(g_cjk_serif_path, size);
         g_latin_serif_fonts[slot] = cp0_fonts().get(g_latin_serif_path, size);
@@ -147,9 +154,11 @@ void init_runtime_fonts(const std::string &) {}
 const lv_font_t *font_for_text(const std::string &text, const lv_font_t *latin)
 {
 #if LV_USE_FREETYPE
-    (void)text;
-    lv_font_t *selected = latin_font_for(latin);
-    return selected ? selected : latin;
+    if (!contains_cjk(text)) return latin;
+    lv_font_t *selected = g_cjk_fonts[font_slot(latin)];
+    return selected && selected != cp0_fonts().fallback(font_size(font_slot(latin)))
+        ? selected
+        : latin;
 #else
     (void)text;
     return latin;

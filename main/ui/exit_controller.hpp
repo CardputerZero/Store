@@ -12,6 +12,8 @@
 
 namespace appstore_ui {
 
+constexpr uint32_t kEscLongPressMs = 3000;
+
 class ExitController
 {
 public:

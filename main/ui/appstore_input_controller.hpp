@@ -71,6 +71,7 @@ private:
     RegistryController &registry_;
     SyncController &sync_;
     Actions actions_;
+    uint32_t dismiss_key_ = 0;
 };
 
 } // namespace appstore_ui

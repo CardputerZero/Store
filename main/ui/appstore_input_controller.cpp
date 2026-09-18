@@ -14,10 +14,6 @@
 
 namespace appstore_ui {
 
-namespace {
-constexpr uint32_t kEscLongPressMs = 1200;
-}
-
 AppStoreInputController::AppStoreInputController(
     AppStoreSessionState &session, PackageJobState &package_job, ExitController &exit,
     ShareCodeState &share_code, CatalogController &catalog,
@@ -40,9 +36,20 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
     if (exit_.requested()) return;
     if (key.code == KEY_ESC) {
         if (key.release) {
-            if (exit_.esc_released(now, kEscLongPressMs) &&
-                session_.screen != Screen::StartupSync) {
-                if (actions_.navigate_back) actions_.navigate_back();
+            // A release at the threshold must also exit if no repeat/timer ran.
+            const bool held = exit_.consume_esc_hold(now, kEscLongPressMs);
+            const bool short_press = exit_.esc_released(now, kEscLongPressMs);
+            if (held) {
+                if (actions_.request_quit) actions_.request_quit();
+            } else if (short_press) {
+                if (session_.exit_hint_visible) {
+                    session_.exit_hint_visible = false;
+                } else if (session_.screen == Screen::Home ||
+                           session_.screen == Screen::StartupSync) {
+                    session_.exit_hint_visible = true;
+                } else if (actions_.navigate_back) {
+                    actions_.navigate_back();
+                }
                 if (actions_.render) actions_.render();
             }
         } else if (!key.repeated) {
@@ -53,6 +60,17 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
         return;
     }
     if (key.release) return;
+    if (session_.exit_hint_visible) {
+        // Dismiss without sending this key (or its repeats) to the page below.
+        if (!key.repeated) {
+            session_.exit_hint_visible = false;
+            dismiss_key_ = key.code;
+            if (actions_.render) actions_.render();
+        }
+        return;
+    }
+    if (key.repeated && dismiss_key_ == key.code) return;
+    dismiss_key_ = 0;
 
     switch (session_.screen) {
         case Screen::StartupSync:

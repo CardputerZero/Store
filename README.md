@@ -109,6 +109,12 @@ Press `4` for settings, `5` for share code, `6` for search, `7` for
 install/reinstall, and `8` or Enter for details. AppStore syncs the registry
 automatically when it starts.
 
+On the home and startup screens, a short `Esc` press opens the centered
+"Hold ESC for 3s to exit." hint. Press `Esc` again or another key to dismiss
+the hint without activating the page underneath. On other screens, short
+`Esc` keeps its back/cancel behavior. Hold `Esc` for three seconds to exit
+from any screen, including while the hint is open.
+
 The detail page shows the complete combined summary and description, followed
 by 160 x 85 screenshot previews loaded from the registry. `F/X` scrolls the
 whole content area; the system bar and bottom actions stay fixed. Descriptions

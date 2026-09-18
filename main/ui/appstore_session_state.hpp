@@ -60,6 +60,7 @@ struct AppStoreSessionState {
     CatalogState catalog;
     RegistryUiState registry;
     Screen screen = Screen::Home;
+    bool exit_hint_visible = false;
     ConfirmationState confirmation;
     SearchState search;
     DetailMediaState detail_media;

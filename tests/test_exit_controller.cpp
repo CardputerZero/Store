@@ -26,5 +26,10 @@ int main()
     assert(!state.consume_esc_hold(0x20U, 100));
     assert(state.consume_esc_hold(0x80U, 100));
     assert(!state.esc_released(0x90U, 100));
+    state.esc_pressed(1000);
+    assert(!state.consume_esc_hold(3999, appstore_ui::kEscLongPressMs));
+    assert(state.consume_esc_hold(4000, appstore_ui::kEscLongPressMs));
+    assert(!state.consume_esc_hold(4001, appstore_ui::kEscLongPressMs));
+    assert(!state.esc_released(4100, appstore_ui::kEscLongPressMs));
     std::cout << "exit controller tests passed\n";
 }

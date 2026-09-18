@@ -107,6 +107,7 @@ void AppStorePresenter::prepare(AppStoreUiPage &page)
 {
     page.clear_content();
     lv_obj_t *root = page.screen();
+    rendered_root_ = root;
     images_.begin_frame();
     lv_obj_set_style_bg_color(root, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
@@ -157,6 +158,7 @@ bool AppStorePresenter::draw_detail_background(lv_obj_t *root,
 
 void AppStorePresenter::render(Screen screen, bool registry_operation_running)
 {
+    rendered_root_ = nullptr;
     switch (screen) {
         case Screen::StartupSync:
             initialization_page_.render(context(initialization_page_), view_models_.initialization());
@@ -244,6 +246,7 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
             break;
         }
     }
+    if (session_.exit_hint_visible && rendered_root_) render_exit_hint(rendered_root_);
 }
 
 } // namespace appstore_ui

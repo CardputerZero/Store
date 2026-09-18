@@ -17,6 +17,8 @@
 
 namespace appstore_ui {
 
+void render_exit_hint(lv_obj_t *root);
+
 struct PageRenderContext {
     std::function<void()> prepare;
     std::function<void()> draw_system_bar;

@@ -154,6 +154,23 @@ void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
 
 } // namespace
 
+void render_exit_hint(lv_obj_t *root)
+{
+    // Match Calculator's centered exit-hint card and dimmed backdrop.
+    lv_obj_t *overlay = box(root, 0, 0, 320, 170, 0x000000, 0x000000, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *card = box(overlay, 34, 58, 252, 54, 0x18181C, 0x3C3C40, 1, 10);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *text = label(card, "Hold ESC for 3s to exit.", 0, 0, 224,
+                           LV_SIZE_CONTENT, store_font("", 14), 0xFFFFFF,
+                           LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(text, store_font("", 14), 0);
+    lv_obj_set_style_text_align(text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(text);
+}
+
 AppStoreUiPage::AppStoreUiPage()
 {
     set_page_title("Store");

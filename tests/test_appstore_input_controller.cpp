@@ -253,5 +253,50 @@ int main()
     input.handle({KEY_B}, 510);
     assert(backs == 3);
 
+    // Root Esc opens a modal; dismissing it must not trigger the key's action.
+    session.screen = Screen::Home;
+    input.handle({KEY_ESC}, 1000);
+    input.handle({KEY_ESC, 0, 0, true}, 1100);
+    assert(session.exit_hint_visible && quits == 1 && backs == 3);
+    input.handle({KEY_ENTER}, 1200);
+    assert(!session.exit_hint_visible && session.screen == Screen::Home);
+    input.handle({KEY_ENTER, 0, 0, false, true}, 1250);
+    assert(session.screen == Screen::Home);
+    input.handle({KEY_ENTER, 0, 0, true}, 1300);
+    input.handle({KEY_ENTER}, 1400);
+    assert(session.screen == Screen::Detail);
+
+    session.screen = Screen::Home;
+    input.handle({KEY_ESC}, 2000);
+    input.handle({KEY_ESC, 0, 0, true}, 2100);
+    assert(session.exit_hint_visible);
+    input.handle({KEY_ESC}, 2200);
+    input.handle({KEY_ESC, 0, 0, true}, 2300);
+    assert(!session.exit_hint_visible && backs == 3);
+
+    // Startup also offers the hint, while retaining the current sync screen.
+    session.screen = Screen::StartupSync;
+    input.handle({KEY_ESC}, 3000);
+    input.handle({KEY_ESC, 0, 0, true}, 3100);
+    assert(session.exit_hint_visible && session.screen == Screen::StartupSync);
+    input.handle({KEY_TAB}, 3200);
+    assert(!session.exit_hint_visible && session.screen == Screen::StartupSync);
+
+    // Holding Esc exits at 3s, never at the previous 1.2s threshold.
+    input.handle({KEY_ESC}, 4000);
+    input.handle({KEY_ESC, 0, 0, false, true}, 5200);
+    assert(quits == 1);
+    input.handle({KEY_ESC, 0, 0, false, true}, 6999);
+    assert(quits == 1);
+    input.handle({KEY_ESC, 0, 0, false, true}, 7000);
+    assert(quits == 2);
+    input.handle({KEY_ESC, 0, 0, true}, 7100);
+    assert(quits == 2 && !session.exit_hint_visible);
+
+    // No-repeat keyboards must still exit when release reaches 3s.
+    input.handle({KEY_ESC}, 8000);
+    input.handle({KEY_ESC, 0, 0, true}, 11000);
+    assert(quits == 3 && !session.exit_hint_visible);
+
     std::cout << "appstore input controller tests passed\n";
 }
