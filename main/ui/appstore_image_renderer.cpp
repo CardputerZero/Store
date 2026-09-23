@@ -32,6 +32,11 @@ bool AppStoreImageRenderer::draw_packaged(lv_obj_t *root, const std::string &nam
     if (!path || !path[0]) return false;
     lv_obj_t *image = lv_image_create(root);
     lv_image_set_src(image, path);
+    lv_obj_update_layout(image);
+    if (lv_obj_get_width(image) <= 0 || lv_obj_get_height(image) <= 0) {
+        lv_obj_delete(image);
+        return false;
+    }
     lv_obj_set_pos(image, x, y);
     return true;
 #else

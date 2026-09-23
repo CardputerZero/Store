@@ -366,6 +366,7 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
 void AppDetailPage::render(const PageRenderContext &context, const AppDetailViewModel &model,
                            DetailMediaState &media, const std::vector<std::string> &screenshots,
                            const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
+                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_packaged,
                            const std::function<void(const appstore::StoreApp &)> &draw_shortcuts)
 {
     context.prepare();
@@ -439,8 +440,12 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
         draw_thumbnail(document, screenshots[index], 20, shot_y);
         if (screenshots.size() > 1) {
             draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
-            text("‹", 5, shot_y + 30, 14, 24, blue);
-            text("›", 304, shot_y + 30, 14, 24, blue);
+            if (!draw_packaged(document, "store_arrow_left.png", 5, shot_y + 35))
+                label(document, "<", 5, shot_y + 30, 14, 26,
+                      &lv_font_montserrat_20, 0xFF6A3D);
+            if (!draw_packaged(document, "store_arrow_right.png", 304, shot_y + 35))
+                label(document, ">", 304, shot_y + 30, 14, 26,
+                      &lv_font_montserrat_20, 0xFF6A3D);
         }
         bottom = shot_y + 85;
     }

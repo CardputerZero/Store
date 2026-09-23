@@ -65,6 +65,7 @@ public:
                 const AppDetailViewModel &model,
                 DetailMediaState &media, const std::vector<std::string> &screenshots,
                 const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
+                const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_packaged,
                 const std::function<void(const appstore::StoreApp &)> &draw_shortcuts);
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);

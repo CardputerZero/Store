@@ -40,13 +40,25 @@ int font_slot(const lv_font_t *font)
     if (font == &lv_font_montserrat_20) return 3;
     if (font == &lv_font_montserrat_14) return 2;
     if (font == &lv_font_montserrat_12) return 1;
-    return 0;
+    for (int slot = 0; slot < 4; ++slot) {
+        if (font == g_latin_fonts[slot] || font == g_cjk_fonts[slot] ||
+            font == g_latin_serif_fonts[slot] || font == g_cjk_serif_fonts[slot]) {
+            return slot;
+        }
+    }
+    return -1;
 }
 
 uint16_t font_size(int slot)
 {
     static constexpr uint16_t sizes[] = {10, 12, 14, 20};
     return sizes[slot];
+}
+
+lv_font_t *latin_font_for_size(uint16_t size)
+{
+    const int slot = font_slot(cp0_fonts().fallback(size));
+    return slot >= 0 ? g_latin_fonts[slot] : nullptr;
 }
 
 bool contains_cjk(const std::string &text)
@@ -91,6 +103,24 @@ const lv_font_t *store_font(const std::string &text, uint16_t size, bool bold)
         ? override
         : (cjk ? g_cjk_sans_path : g_latin_sans_path);
     const auto style = LV_FREETYPE_FONT_STYLE_NORMAL;
+
+    // Keep Latin as the primary font for mixed names.  CJK fonts commonly
+    // use different Latin glyph metrics, which makes the English part of a
+    // name appear smaller even though both fonts were requested at the same
+    // point size.  The CJK font is installed as the fallback during runtime
+    // font initialization, so missing CJK glyphs still render correctly.
+    if (cjk) {
+        lv_font_t *latin = latin_font_for_size(size);
+        if (latin && latin != cp0_fonts().fallback(size)) {
+            if (override && override[0]) {
+                lv_font_t *fallback = load_cjk_font(
+                    font_name, size, LV_FREETYPE_FONT_STYLE_NORMAL);
+                if (fallback != cp0_fonts().fallback(size)) latin->fallback = fallback;
+            }
+            return latin;
+        }
+    }
+
     lv_font_t *selected = cjk
         ? load_cjk_font(font_name, size, style)
         : cp0_fonts().get(font_name, size, style);
@@ -155,8 +185,13 @@ const lv_font_t *font_for_text(const std::string &text, const lv_font_t *latin)
 {
 #if LV_USE_FREETYPE
     if (!contains_cjk(text)) return latin;
-    lv_font_t *selected = g_cjk_fonts[font_slot(latin)];
-    return selected && selected != cp0_fonts().fallback(font_size(font_slot(latin)))
+    // Use the same Latin-primary/CJK-fallback pairing as store_font().
+    // Selecting the CJK font as the primary font changes the apparent size of
+    // Latin glyphs in mixed-language names.
+    const int slot = font_slot(latin);
+    if (slot < 0) return latin;
+    lv_font_t *selected = g_latin_fonts[slot];
+    return selected && selected != cp0_fonts().fallback(font_size(slot))
         ? selected
         : latin;
 #else

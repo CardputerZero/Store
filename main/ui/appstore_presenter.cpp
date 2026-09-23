@@ -186,6 +186,9 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                 [this](lv_obj_t *parent, const std::string &path, int x, int y) {
                     return images_.draw_thumbnail(parent, path, x, y);
                 },
+                [this](lv_obj_t *parent, const std::string &name, int x, int y) {
+                    return images_.draw_packaged(parent, name, x, y);
+                },
                 [this](const appstore::StoreApp &app) {
                     AppStoreShortcutBar::render_detail(
                         detail_page_.screen(), session_.app_dir, app);
