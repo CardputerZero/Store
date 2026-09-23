@@ -113,6 +113,19 @@ lv_obj_t *box(lv_obj_t *root, int x, int y, int w, int h, uint32_t color,
     return obj;
 }
 
+void screenshot_arrow(lv_obj_t *root, int x, int y, bool right, uint32_t color)
+{
+    // Keep navigation visible without font glyphs when packaged arrows cannot load.
+    static const lv_point_precise_t left_points[] = {{9, 1}, {1, 9}, {9, 17}};
+    static const lv_point_precise_t right_points[] = {{1, 1}, {9, 9}, {1, 17}};
+    lv_obj_t *arrow = lv_line_create(root);
+    lv_line_set_points(arrow, right ? right_points : left_points, 3);
+    lv_obj_set_pos(arrow, x, y);
+    lv_obj_set_style_line_color(arrow, lv_color_hex(color), 0);
+    lv_obj_set_style_line_width(arrow, 2, 0);
+    lv_obj_set_style_line_rounded(arrow, true, 0);
+}
+
 void set_progress_scan_x(void *object, int32_t x)
 {
     lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
@@ -441,11 +454,9 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
         if (screenshots.size() > 1) {
             draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
             if (!draw_packaged(document, "store_arrow_left.png", 5, shot_y + 35))
-                label(document, "<", 5, shot_y + 30, 14, 26,
-                      &lv_font_montserrat_20, 0xFF6A3D);
+                screenshot_arrow(document, 5, shot_y + 33, false, 0xFF6A3D);
             if (!draw_packaged(document, "store_arrow_right.png", 304, shot_y + 35))
-                label(document, ">", 304, shot_y + 30, 14, 26,
-                      &lv_font_montserrat_20, 0xFF6A3D);
+                screenshot_arrow(document, 304, shot_y + 33, true, 0xFF6A3D);
         }
         bottom = shot_y + 85;
     }
