@@ -42,7 +42,7 @@ public:
     void cycle_screenshot(int delta, uint32_t now);
     bool open_screenshots(uint32_t now);
     void ensure_screenshots();
-    void scroll_page(int delta);
+    void scroll_page(int delta, uint32_t now);
 
 private:
     appstore::StoreApp *selected_app();

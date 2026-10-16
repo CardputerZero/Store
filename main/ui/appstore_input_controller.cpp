@@ -126,9 +126,9 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
         case Screen::Detail: {
             appstore::StoreApp *app = catalog_.ensure_selected();
             if (key.code == KEY_UP || key.code == KEY_F || key.ch == 'f')
-                detail_.scroll_page(-1);
+                detail_.scroll_page(-1, now);
             else if (key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x')
-                detail_.scroll_page(1);
+                detail_.scroll_page(1, now);
             else if (key.code == KEY_LEFT || key.code == KEY_Z || key.ch == 'z')
                 detail_.cycle_screenshot(-1, now);
             else if (key.code == KEY_RIGHT || key.code == KEY_C || key.ch == 'c')

@@ -98,6 +98,9 @@ public:
     void render_screenshot_overlay(const PageRenderContext &context,
                                    const ScreenshotOverlayViewModel &model,
                                    const std::function<void()> &draw_background);
+private:
+    HorizontalMarquee title_marquee_;
+    HorizontalMarquee author_marquee_;
 };
 
 class StoreSettingsPage : public AppStoreUiPage

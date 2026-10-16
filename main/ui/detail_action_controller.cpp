@@ -200,9 +200,9 @@ void DetailActionController::ensure_screenshots()
     if (start_screenshots_(app->id)) session_.detail_media.begin_loading(app->id);
 }
 
-void DetailActionController::scroll_page(int delta)
+void DetailActionController::scroll_page(int delta, uint32_t now)
 {
-    session_.detail_media.scroll_page(delta);
+    session_.detail_media.scroll_page(delta, now);
     session_.status.value().clear();
 }
 

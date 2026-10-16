@@ -108,6 +108,8 @@ AppDetailViewModel AppStoreViewModelFactory::detail(StoreApp *selected, uint32_t
     model.app = *selected;
     model.app.size = human_size(selected->size);
     model.title = single_line(selected->name) + "  " + single_line(selected->version);
+    model.version = single_line(selected->version.empty() ? "-" : selected->version);
+    model.author = single_line(selected->author.empty() ? "-" : selected->author);
     model.state = selected->installed ? "Installed" : "Not installed";
     if (selected->installed && !selected->installed_version.empty())
         model.state += " " + one_line(selected->installed_version, 10);

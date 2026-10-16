@@ -80,6 +80,93 @@ lv_obj_t *box(lv_obj_t *root, int x, int y, int w, int h, uint32_t color,
     return obj;
 }
 
+// A field keeps its color on the home and detail pages.
+constexpr uint32_t kVersionColor = 0x7EE787;
+constexpr uint32_t kMaintainerColor = 0xFFA657;
+constexpr uint32_t kSizeColor = 0x79C0FF;
+constexpr uint32_t kDateColor = 0xD2A8FF;
+
+void field_chip(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
+{
+    // Keep the tint faint: the value is drawn in the same color on top.
+    lv_obj_t *chip = box(parent, x, y, w, h, color, color, 1, 5, LV_OPA_20);
+    lv_obj_set_style_border_opa(chip, LV_OPA_40, 0);
+}
+
+void field_value(lv_obj_t *parent, const std::string &value, int x, int y, int w,
+                 uint32_t color, HorizontalMarquee *marquee, const std::string &key)
+{
+    const lv_font_t *font = store_font(value, 14);
+    if (marquee)
+        marquee_label(parent, value, x, y, w, font->line_height, font, color, *marquee, key);
+    else
+        label(parent, value, x, y, w, font->line_height, font, color, LV_LABEL_LONG_DOT);
+}
+
+void home_field(lv_obj_t *root, const std::string &value, int x, int y, int w,
+                uint32_t color, HorizontalMarquee *marquee = nullptr,
+                const std::string &key = {})
+{
+    constexpr int height = 20, pad = 6;
+    field_chip(root, x, y, w, height, color);
+    const int line_height = store_font(value, 14)->line_height;
+    field_value(root, value, x + pad, y + (height - line_height) / 2, w - 2 * pad,
+                color, marquee, key);
+}
+
+void detail_field(lv_obj_t *parent, const char *caption, const std::string &value,
+                  int x, int y, int w, uint32_t color, HorizontalMarquee *marquee = nullptr,
+                  const std::string &key = {})
+{
+    constexpr int height = 31, pad = 7;
+    field_chip(parent, x, y, w, height, color);
+    lv_obj_t *title = label(parent, caption, x + pad, y + 2, w - 2 * pad, 12,
+                            &lv_font_montserrat_10, color);
+    lv_obj_set_style_text_opa(title, LV_OPA_70, 0);
+    field_value(parent, value, x + pad, y + 13, w - 2 * pad, color, marquee, key);
+}
+
+int detail_info_row(lv_obj_t *parent, const char *caption, const std::string &value, int y)
+{
+    label(parent, caption, 10, y + 2, 64, 12, &lv_font_montserrat_10, 0x8B949E);
+    lv_obj_t *text = label(parent, value, 76, y, 234, LV_SIZE_CONTENT,
+                           store_font(value, 12), 0xC9D1D9, LV_LABEL_LONG_WRAP);
+    lv_obj_update_layout(text);
+    return y + lv_obj_get_height(text) + 4;
+}
+
+// Content that runs under a fixed edge fades out instead of being cut mid-line.
+void edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towards_bottom)
+{
+    lv_obj_t *fade = box(root, 0, y, 320, height, color, color, 0);
+    lv_obj_set_style_bg_grad_color(fade, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_grad_dir(fade, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_main_opa(fade, towards_bottom ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_grad_opa(fade, towards_bottom ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+}
+
+void glide_page(lv_obj_t *document, DetailMediaState &media, uint32_t now)
+{
+    const uint32_t remaining = media.page_glide_remaining(now);
+    if (remaining == 0) return;
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, document);
+    lv_anim_set_user_data(&animation, &media);
+    lv_anim_set_values(&animation, 0, static_cast<int32_t>(remaining));
+    lv_anim_set_duration(&animation, remaining);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        auto *media = static_cast<DetailMediaState *>(lv_anim_get_user_data(anim));
+        lv_obj_set_y(static_cast<lv_obj_t *>(anim->var), -media->page_scroll_at(lv_tick_get()));
+    });
+    // The animation timer can finish a frame early; land exactly on the target.
+    lv_anim_set_completed_cb(&animation, [](lv_anim_t *anim) {
+        auto *media = static_cast<DetailMediaState *>(lv_anim_get_user_data(anim));
+        lv_obj_set_y(static_cast<lv_obj_t *>(anim->var), -media->page_scroll());
+    });
+    lv_anim_start(&animation);
+}
+
 void screenshot_arrow(lv_obj_t *root, int x, int y, bool right, uint32_t color)
 {
     // Keep navigation visible without font glyphs when packaged arrows cannot load.
@@ -309,26 +396,25 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
               catalog_home::kIconCenterY - font->line_height, details_width,
               font->line_height * 2, font, 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        // Keep the name and its details one block, centered on the icon.
+        // Keep the name and its detail tags one block, centered on the icon.
         const lv_font_t *name_font = store_font(model.name, 20, true);
-        constexpr int row_height = 22, row_gap = 3, name_gap = 4;
-        const int stack = name_font->line_height + name_gap + row_height + row_gap + row_height;
+        constexpr int chip_height = 20, chip_gap = 3, name_gap = 4;
+        constexpr int chip_width = 70, column_gap = 4;
+        const int stack = name_font->line_height + name_gap + chip_height + chip_gap + chip_height;
         // The name's line box keeps room below the baseline, so the block's
         // center sits below its visible text. Nudge it down to match the icon.
         int y = catalog_home::kIconCenterY - stack / 2 + 4;
         marquee_label(root, model.name, catalog_home::kDetailsX, y, details_width,
                       name_font->line_height, name_font, 0xFFFFFF, title_marquee_, model.name);
         y += name_font->line_height + name_gap;
-        label(root, model.version, catalog_home::kDetailsX, y, 66, row_height,
-              store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        marquee_label(root, model.author, catalog_home::kDetailsX + 70, y, details_width - 70,
-                      row_height, store_font(model.author, 14), 0xFFFFFF,
-                      author_marquee_, model.name + model.author);
-        y += row_height + row_gap;
-        label(root, model.size, catalog_home::kDetailsX, y, 68, row_height,
-              store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        label(root, model.updated, catalog_home::kDetailsX + 70, y, details_width - 70, row_height,
-              store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        const int value_width = details_width - chip_width - column_gap;
+        home_field(root, model.version, catalog_home::kDetailsX, y, chip_width, kVersionColor);
+        home_field(root, model.author, catalog_home::kDetailsX + chip_width + column_gap, y,
+                   value_width, kMaintainerColor, &author_marquee_, model.name + model.author);
+        y += chip_height + chip_gap;
+        home_field(root, model.size, catalog_home::kDetailsX, y, chip_width, kSizeColor);
+        home_field(root, model.updated, catalog_home::kDetailsX + chip_width + column_gap, y,
+                   value_width, kDateColor);
     }
     if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
     draw_shortcuts();
@@ -418,7 +504,7 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     context.draw_system_bar();
     lv_obj_t *root = screen();
     constexpr uint32_t background = 0x081010;
-    constexpr uint32_t blue = 0x0099DD;
+    constexpr int viewport_y = 20;
     constexpr int viewport_height = 129;
     box(root, 0, 20, 320, 150, background, background, 0);
     if (!model.has_app) {
@@ -428,7 +514,7 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     // Clip the entire detail document between the system bar and fixed action row.
     lv_obj_t *viewport = lv_obj_create(root);
     lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, 0, 20);
+    lv_obj_set_pos(viewport, 0, viewport_y);
     lv_obj_set_size(viewport, 320, viewport_height);
     lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *document = lv_obj_create(viewport);
@@ -436,51 +522,46 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     lv_obj_set_width(document, 320);
     lv_obj_clear_flag(document, LV_OBJ_FLAG_SCROLLABLE);
 
-    auto text = [&](const std::string &value, int x, int y, int width,
-                    int size, uint32_t color, bool wrap = false) {
-        return label(document, value, x, y, width, wrap ? LV_SIZE_CONTENT : size + 6,
-                     store_font(value, size), color,
-                     wrap ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
-    };
-    box(document, 0, 0, 320, 22, 0x007AC2, 0x007AC2, 0);
-    auto header_text = [&](const std::string &value, int x, int width) {
-        const lv_font_t *font = store_font(value, 14);
-        // Center the line box, with a one-pixel optical correction for the baseline.
-        const int y = std::max(0, (22 - static_cast<int>(font->line_height)) / 2 + 1);
-        return label(document, value, x, y, width, font->line_height,
-                     font, 0xFFFFFF, LV_LABEL_LONG_DOT);
-    };
-    header_text(model.app.name, 16, 120);
-    header_text(model.app.version, 142, 78);
-    auto *author = header_text(model.app.author.empty() ? "-" : model.app.author, 226, 84);
-    lv_obj_set_style_text_align(author, LV_TEXT_ALIGN_RIGHT, 0);
+    const appstore::StoreApp &app = model.app;
+    const lv_font_t *title_font = store_font(app.name, 20, true);
+    marquee_label(document, app.name, 10, 4, 300, title_font->line_height, title_font,
+                  0xFFFFFF, title_marquee_, app.id + app.name);
+    int y = 8 + title_font->line_height;
+    // Same fields, arrangement and colors as the home page.
+    detail_field(document, "VERSION", model.version, 10, y, 146, kVersionColor);
+    detail_field(document, "MAINTAINER", model.author, 164, y, 146, kMaintainerColor,
+                 &author_marquee_, app.id + model.author);
+    y += 34;
+    detail_field(document, "SIZE", app.size, 10, y, 146, kSizeColor);
+    detail_field(document, "UPDATED", model.updated, 164, y, 146, kDateColor);
+    y += 36;
 
-    text("State", 10, 24, 48, 12, blue);
-    text(model.state, 60, 24, 96, 12, 0xFFFFFF);
-    text("Size", 160, 24, 48, 12, blue);
-    text(model.app.size, 210, 24, 105, 12, 0xFFFFFF);
-    text("Updated", 10, 41, 48, 10, blue);
-    text(model.updated, 60, 41, 96, 10, 0xFFFFFF);
-    text("Package", 160, 41, 48, 10, blue);
-    text(model.app.package.empty() ? "-" : model.app.package, 210, 41, 105, 10, 0xFFFFFF);
-    text("Category", 10, 59, 48, 10, blue);
-    auto *categories = text(model.categories, 60, 59, 250, 10, 0xFFFFFF, true);
-    lv_obj_update_layout(categories);
-    const int description_y = std::max(77, 59 + lv_obj_get_height(categories) + 6);
-    text("Desc", 10, description_y, 48, 12, blue);
-    auto *description = text(model.description, 60, description_y, 250, 12, 0xFFFFFF, true);
-    lv_obj_set_style_text_line_space(description, 1, 0);
+    const uint32_t state_color = !app.installed ? 0x6E7681 :
+        (appstore::can_upgrade_app(app) ? 0xF0B429 : 0x52D05D);
+    box(document, 11, y + 5, 8, 8, state_color, state_color, 0, 4);
+    label(document, model.state, 25, y, 285, 17, store_font(model.state, 14),
+          app.installed ? 0xE6EDF3 : 0xB1BAC4, LV_LABEL_LONG_DOT);
+    y += 23;
+    box(document, 10, y, 300, 1, 0x1E2A30, 0x1E2A30, 0);
+    y += 7;
+    lv_obj_t *description = label(document, model.description, 10, y, 300, LV_SIZE_CONTENT,
+                                  store_font(model.description, 12), 0xC9D1D9,
+                                  LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_line_space(description, 2, 0);
     lv_obj_update_layout(description);
-    int bottom = description_y + lv_obj_get_height(description);
-    if (model.show_status) {
-        auto *status = text(model.status, 60, bottom + 6, 250, 12, 0xCCCC33, true);
-        lv_obj_update_layout(status);
-        bottom += 6 + lv_obj_get_height(status);
-    }
-    media.normalize_images(model.app.id, static_cast<int>(screenshots.size()));
+    y += lv_obj_get_height(description) + 10;
+
+    media.normalize_images(app.id, static_cast<int>(screenshots.size()));
     if (!screenshots.empty()) {
-        const int shot_y = bottom + 8;
         const int index = media.image_index();
+        label(document, "SCREENSHOTS", 10, y, 150, 12, &lv_font_montserrat_10, 0x8B949E);
+        if (screenshots.size() > 1) {
+            lv_obj_t *count = label(document, std::to_string(index + 1) + "/" +
+                                    std::to_string(screenshots.size()), 250, y, 60, 12,
+                                    &lv_font_montserrat_10, 0x8B949E);
+            lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
+        }
+        const int shot_y = y + 16;
         // One complete 160 x 85 preview and a glimpse of the next image.
         draw_thumbnail(document, screenshots[index], 20, shot_y);
         if (screenshots.size() > 1) {
@@ -490,13 +571,28 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
             if (!draw_packaged(document, "store_arrow_right.png", 304, shot_y + 35))
                 screenshot_arrow(document, 304, shot_y + 33, true, 0xFF6A3D);
         }
-        bottom = shot_y + 85;
+        y = shot_y + 85 + 10;
     }
-    bottom += 8;
-    lv_obj_set_height(document, bottom);
-    media.normalize_page(model.app.id, bottom, viewport_height);
-    lv_obj_set_y(document, -media.page_scroll());
-    draw_shortcuts(model.app);
+    y = detail_info_row(document, "PACKAGE", app.package.empty() ? "-" : app.package, y);
+    y = detail_info_row(document, "CATEGORY", model.categories, y);
+    y += 6;
+    lv_obj_set_height(document, y);
+    media.normalize_page(app.id, y, viewport_height);
+    const uint32_t now = lv_tick_get();
+    lv_obj_set_y(document, -media.page_scroll_at(now));
+    glide_page(document, media, now);
+
+    if (media.page_scroll() > 0)
+        edge_fade(root, viewport_y, 10, background, false);
+    if (media.page_scroll() < y - viewport_height)
+        edge_fade(root, viewport_y + viewport_height - 12, 12, background, true);
+    if (model.show_status) {
+        // Fixed above the actions so feedback is visible at any scroll position.
+        lv_obj_t *toast = box(root, 0, 132, 320, 17, background, 0x2A3A46, 1);
+        lv_obj_set_style_border_side(toast, LV_BORDER_SIDE_TOP, 0);
+        scrolling_status_label(root, model.status, 10, 135, 300, 12);
+    }
+    draw_shortcuts(app);
 }
 
 void AppDetailPage::render_confirmation(const PageRenderContext &context,

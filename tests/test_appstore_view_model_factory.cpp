@@ -80,6 +80,7 @@ int main()
     assert(detail.app.size == "19.6 MB");
     assert(detail.updated == "2026-07-23 14:32");
     assert(detail.title == "A very long application name that must stay intact  2.0");
+    assert(detail.version == "2.0" && detail.author == "-");
 
     catalog = factory.catalog(100, 6000);
     assert(catalog.version == "2.0");
@@ -100,6 +101,7 @@ int main()
     app.version = "2.0\tbeta";
     detail = factory.detail(&app, 100, 6000);
     assert(detail.title == "Line one Line two  2.0 beta");
+    assert(detail.version == "2.0 beta");
     app.name = "App 0";
     app.version = "2.0";
 

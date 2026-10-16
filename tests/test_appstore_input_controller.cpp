@@ -210,6 +210,7 @@ int main()
     session.detail_media.normalize_page(detail_id, 400, 129);
     input.handle({KEY_X, 0, 'x'}, 186);
     assert(session.detail_media.page_scroll() == 24);
+    assert(session.detail_media.page_scroll_at(186) == 0);
     input.handle({KEY_F, 0, 'f'}, 187);
     assert(session.detail_media.page_scroll() == 0);
     session.catalog.selected_app()->images = "icon,one,two";

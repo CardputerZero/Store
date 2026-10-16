@@ -73,6 +73,8 @@ struct AppDetailViewModel {
     bool has_app = false;
     appstore::StoreApp app;
     std::string title;
+    std::string version;
+    std::string author;
     std::string state;
     std::string updated;
     bool installable = false;

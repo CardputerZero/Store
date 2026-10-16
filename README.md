@@ -105,7 +105,9 @@ selection to All. Long names bounce like the selected APPLaunch title: they
 pause for two seconds, scroll horizontally at 40 pixels per second to the end,
 pause again, and scroll back. Status-bar updates keep the current reading
 position, and labels never scroll vertically. In search results only the
-selected name scrolls; the others end with an ellipsis.
+selected name scrolls; the others end with an ellipsis. The selected app's
+version, maintainer, size, and update date are shown in green, orange, blue,
+and violet tags.
 The category's position in the category list (for example `2 / 5`) is shown
 under its name. The selected app's position in the category (for example
 `1 / 4`) is shown beside its icon, and the catalog size is shown next to the
@@ -120,11 +122,15 @@ the hint without activating the page underneath. On other screens, short
 `Esc` keeps its back/cancel behavior. Hold `Esc` for three seconds to exit
 from any screen, including while the hint is open.
 
-The detail page shows the complete combined summary and description, followed
-by 160 x 85 screenshot previews loaded from the registry. `F/X` scrolls the
-whole content area; the system bar and bottom actions stay fixed. Descriptions
-wrap without a height limit or automatic scrolling. `Z/C` cycles screenshots;
-apps without screenshots have no screenshot area. Detail actions are `4` back,
+The detail page shows the app name, the same color-coded version, maintainer,
+size, and update fields as the home screen, the install state, the complete
+description, 160 x 85 screenshot previews loaded from the registry, and the
+package and categories. `F/X` scrolls the whole content area with a short
+glide, 24 pixels per press; holding the key scrolls continuously. The system
+bar and bottom actions stay fixed, and status messages appear just above the
+actions at any scroll position. Descriptions wrap without a height limit or
+automatic scrolling. `Z/C` cycles screenshots; apps without screenshots have
+no screenshot area. Detail actions are `4` back,
 `6` install/reinstall, `7` upgrade, and `8` remove, shown when applicable.
 The existing full-screen screenshot viewer remains accessible through `5`.
 
