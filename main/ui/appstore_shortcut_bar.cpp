@@ -7,31 +7,42 @@
 #include "appstore_shortcut_bar.hpp"
 #include "appstore_fonts.hpp"
 
-#include "appstore_fonts.hpp"
-
 namespace appstore_ui {
 namespace {
 
-void centered_strong_label(lv_obj_t *root, const std::string &text, int x, int y,
-                           int w, int h, uint32_t color)
-{
-    {
-        lv_obj_t *label = lv_label_create(root);
-        lv_obj_set_pos(label, x, y);
-        lv_obj_set_size(label, w, h);
-        lv_obj_set_style_text_font(label, store_font(text, 12), 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
-        lv_obj_set_style_text_letter_space(label, 0, 0);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        lv_label_set_text(label, text.c_str());
-    }
-}
+constexpr int kScreenHeight = 170;
 
+// A bookmark tab: the same tinted chip as the detail fields, but the rounded
+// bottom continues past the screen, so the page edge cuts it with no border.
 void shortcut_label(lv_obj_t *root, int center_x,
-                    const std::string &text, uint32_t color, int width = 56)
+                    const std::string &text, uint32_t color, int width = 52)
 {
-    centered_strong_label(root, text, center_x - width / 2, 151, width, 18, color);
+    constexpr int top = 152, radius = 7;
+    const int x = center_x - width / 2;
+    const int visible = kScreenHeight - top;
+    lv_obj_t *tab = lv_obj_create(root);
+    lv_obj_remove_style_all(tab);
+    lv_obj_set_pos(tab, x, top);
+    lv_obj_set_size(tab, width, visible + radius);
+    lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(tab, radius, 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(tab, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(tab, 1, 0);
+    lv_obj_set_style_border_color(tab, lv_color_hex(color), 0);
+    lv_obj_set_style_border_opa(tab, LV_OPA_50, 0);
+    lv_obj_set_style_border_side(tab, static_cast<lv_border_side_t>(
+        LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
+
+    const lv_font_t *font = store_font(text, 12);
+    lv_obj_t *label = lv_label_create(root);
+    lv_obj_set_pos(label, x + 2, top + (visible - font->line_height) / 2);
+    lv_obj_set_size(label, width - 4, font->line_height);
+    lv_obj_set_style_text_font(label, font, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_label_set_text(label, text.c_str());
 }
 
 } // namespace
