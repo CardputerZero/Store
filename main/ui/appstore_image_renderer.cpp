@@ -61,7 +61,7 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
     lv_obj_clear_flag(clip, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(clip, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(clip, 0, 0);
-    lv_obj_set_style_radius(clip, 10, 0);
+    lv_obj_set_style_radius(clip, width / 6, 0);
     lv_obj_set_style_clip_corner(clip, true, 0);
     lv_obj_set_style_pad_all(clip, 0, 0);
     lv_obj_t *icon = lv_image_create(clip);

@@ -18,7 +18,7 @@ namespace {
 constexpr int kCategoryX = 28;
 constexpr int kCategoryY = 24;
 constexpr int kCategoryWidth = 86;
-constexpr int kCategoryPositionY = 37;
+constexpr int kCategoryKeyWidth = 18;
 constexpr uint32_t kStatusVisibleMs = 6000;
 
 lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y, int w, int h,
@@ -80,44 +80,68 @@ std::string app_initial(const appstore::StoreApp &app)
     return "A";
 }
 
-// Selection inside the current category, centered on the icon.
-void draw_selection_position(lv_obj_t *root, int index, int count)
+constexpr int kCounterIconGap = 4;
+
+int counter_width(const std::string &text)
 {
-    const std::string text = std::to_string(index) + " / " + std::to_string(count);
-    const lv_font_t *font = store_font("", 12);
-    // The name and tags start at kDetailsX; stay clear of them.
-    label(root, text, catalog_home::kIconX + catalog_home::kIconSize + 4,
-          catalog_home::kIconCenterY - glyph_middle(font, '0'),
-          catalog_home::kDetailsX - (catalog_home::kIconX + catalog_home::kIconSize + 4),
-          font->line_height, font, catalog_home::kMuted);
+    lv_point_t size = {};
+    lv_text_get_size(&size, text.c_str(), store_font("", 14), 0, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return size.x;
 }
 
-// Whole-catalog count, sitting on the same line as the category name.
-void draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images,
-                        int count, int category_middle)
+// Gray header count at x, centered on `middle`; "..." if it needs more than `width`.
+void counter_label(lv_obj_t *root, const std::string &text, int x, int width, int middle)
+{
+    const lv_font_t *font = store_font("", 14);
+    label(root, text, x, middle - glyph_middle(font, '0'), width, font->line_height, font,
+          catalog_home::kMuted, LV_LABEL_LONG_DOT);
+}
+
+// Gray count, right-aligned at `right` and centered on `middle`. Returns its left edge.
+int header_count(lv_obj_t *root, const std::string &text, int right, int middle)
+{
+    const int width = counter_width(text);
+    counter_label(root, text, right - width, width + 4, middle);
+    return right - width;
+}
+
+// Catalog size: Store icon, then the count. Returns the icon's left edge.
+int draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images, int total,
+                       int right, int middle)
 {
     // The Store artwork is a badge with its own padding, so the box has to be
     // larger than the category's letter height to look the same size.
-    constexpr int icon_size = 18, gap = 4, right = 312;
-    const std::string text = std::to_string(count);
-    const lv_font_t *font = store_font("", 14);
-    lv_point_t size = {};
-    lv_text_get_size(&size, text.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    const int text_x = right - size.x;
-    label(root, text, text_x, category_middle - glyph_middle(font, '0'), size.x + 4,
-          font->line_height, font, catalog_home::kMuted);
-    const int icon_x = text_x - gap - icon_size;
+    constexpr int icon_size = 18;
+    const int icon_x = header_count(root, std::to_string(total), right, middle) -
+                       kCounterIconGap - icon_size;
     if (lv_obj_t *icon = images.draw_packaged(root, "store_100.png", icon_x, 0)) {
         const int scale = std::max(1, std::min(icon_size * 256 / lv_obj_get_width(icon),
                                                icon_size * 256 / lv_obj_get_height(icon)));
         lv_image_set_scale(icon, static_cast<uint16_t>(scale));
         lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
         lv_obj_set_size(icon, icon_size, icon_size);
-        lv_obj_set_y(icon, category_middle - icon_size / 2);
-        return;
+        lv_obj_set_y(icon, middle - icon_size / 2);
+    } else {
+        const lv_font_t *font = store_font("", 14);
+        strong_label(root, "*", icon_x, middle - glyph_middle(font, '*'), icon_size,
+                     font->line_height, font, catalog_home::kMuted);
     }
-    strong_label(root, "*", icon_x, category_middle - glyph_middle(font, '*'), icon_size,
-                 font->line_height, font, catalog_home::kMuted);
+    return icon_x;
+}
+
+// Selected app within the category: the up/down keys that change it, then "x / y".
+// Returns the group's left edge.
+int draw_selection_position(lv_obj_t *root, int position, int count, int right, int middle)
+{
+    constexpr int key = 16, key_gap = 2;
+    const int text_x = header_count(root, std::to_string(position) + " / " +
+                                    std::to_string(count), right, middle);
+    const int down_x = text_x - kCounterIconGap - key / 2;
+    const int up_x = down_x - key - key_gap;
+    draw_arrow_key(root, ArrowKey::Down, down_x, middle, key, key);
+    draw_arrow_key(root, ArrowKey::Up, up_x, middle, key, key);
+    return up_x - key / 2;
 }
 
 } // namespace
@@ -164,54 +188,48 @@ void AppStorePresenter::draw_category_selector(lv_obj_t *root)
     // The name is uppercase: center on its capitals, not on the line box,
     // which also reserves room below the baseline for descenders.
     const int middle = kCategoryY + glyph_middle(font, 'H');
-    auto chevron = [&](const char *image, const char *fallback, int x) {
-        if (lv_obj_t *arrow = images_.draw_packaged(root, image, x, 0)) {
-            lv_obj_set_y(arrow, middle - lv_obj_get_height(arrow) / 2);
-            return;
-        }
-        const lv_font_t *arrow_font = store_font("", 20);
-        strong_label(root, fallback, x, middle - glyph_middle(arrow_font, fallback[0]), 14,
-                     arrow_font->line_height, arrow_font, 0xFF6A3D);
-    };
-    chevron("store_arrow_left.png", "<", 14);
-    chevron("store_arrow_right.png", ">", 116);
-    draw_catalog_total(root, images_, static_cast<int>(session_.catalog.apps().size()), middle);
+    const int right_key_x = kCategoryX + kCategoryWidth + 10;
+    draw_arrow_key(root, ArrowKey::Left, kCategoryX - 10, middle, kCategoryKeyWidth);
+    draw_arrow_key(root, ArrowKey::Right, right_key_x, middle, kCategoryKeyWidth);
+
+    // Header counters, right to left: catalog size, then the selected app's
+    // position in the category. The category's own position follows its right
+    // key and gets whatever room is left.
+    constexpr int counter_gap = 10;
+    int free_right = draw_catalog_total(root, images_,
+                                        static_cast<int>(session_.catalog.apps().size()),
+                                        catalog_home::kRight, middle) - counter_gap;
+    const int selected = session_.catalog.selected_index();
+    const int visible = static_cast<int>(session_.catalog.visible().size());
+    if (selected >= 0 && selected < visible)
+        free_right = draw_selection_position(root, selected + 1, visible, free_right, middle) -
+                     counter_gap;
 
     const auto &categories = session_.catalog.categories();
     const int index = session_.catalog.category_index();
     if (index < 0 || index >= static_cast<int>(categories.size())) return;
-    lv_obj_t *position = label(root, std::to_string(index + 1) + " / " +
-                               std::to_string(categories.size()),
-                               kCategoryX, kCategoryPositionY, kCategoryWidth, 12,
-                               &lv_font_montserrat_10, 0x8B949E);
-    lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
+    const std::string position = std::to_string(index + 1) + " / " +
+                                 std::to_string(categories.size());
+    const int position_x = right_key_x + kCategoryKeyWidth / 2 + kCounterIconGap;
+    const int width = std::min(counter_width(position) + 4, free_right - position_x);
+    if (width > 0) counter_label(root, position, position_x, width, middle);
 }
 
 void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
                                               const appstore::StoreApp *app)
 {
+    using catalog_home::kIconCenterY;
     using catalog_home::kIconSize;
     using catalog_home::kIconX;
-    using catalog_home::kIconY;
-    const int arrow_x = kIconX + (kIconSize - 14) / 2;
-    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 51))
-        center_strong_label(root, "^", kIconX + 16, 49, 28, 18,
-                            &lv_font_montserrat_20, 0xFF6A3D);
+    const lv_font_t *font = &lv_font_montserrat_20;
     if (!app) {
-        center_strong_label(root, "-", kIconX + 22, kIconY + 24, 24, 22,
-                            &lv_font_montserrat_20, 0x9A9A9A);
+        center_strong_label(root, "-", kIconX, kIconCenterY - glyph_middle(font, '-'),
+                            kIconSize, font->line_height, font, 0x9A9A9A);
     } else if (!images_.draw_app_icon(root, session_.app_dir, *app)) {
-        center_strong_label(root, app_initial(*app), kIconX, kIconY + 21,
-                            kIconSize, 28, &lv_font_montserrat_20,
-                            app->installed ? 0x52D05D : 0xFFFFFF);
+        center_strong_label(root, app_initial(*app), kIconX,
+                            kIconCenterY - glyph_middle(font, 'H'), kIconSize,
+                            font->line_height, font, app->installed ? 0x52D05D : 0xFFFFFF);
     }
-    const int index = session_.catalog.selected_index();
-    const int count = static_cast<int>(session_.catalog.visible().size());
-    if (index >= 0 && index < count)
-        draw_selection_position(root, index + 1, count);
-    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 133))
-        center_strong_label(root, "v", kIconX + 16, 131, 28, 18,
-                            &lv_font_montserrat_20, 0xFF6A3D);
 }
 
 bool AppStorePresenter::draw_detail_background(lv_obj_t *root,
@@ -252,9 +270,6 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                 session_.detail_media, screenshots,
                 [this](lv_obj_t *parent, const std::string &path, int x, int y) {
                     return images_.draw_thumbnail(parent, path, x, y);
-                },
-                [this](lv_obj_t *parent, const std::string &name, int x, int y) {
-                    return images_.draw_packaged(parent, name, x, y) != nullptr;
                 },
                 [this](const appstore::StoreApp &app) {
                     AppStoreShortcutBar::render_detail(

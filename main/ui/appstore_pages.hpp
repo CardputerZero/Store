@@ -22,14 +22,34 @@ void render_exit_hint(lv_obj_t *root);
 // Middle of a glyph's ink, measured from the top of the font's line box.
 int glyph_middle(const lv_font_t *font, uint32_t letter);
 
+enum class ArrowKey { Left, Up, Right, Down };
+
+// A small raised button with a solid arrow, for on-screen navigation hints.
+void draw_arrow_key(lv_obj_t *parent, ArrowKey arrow, int center_x, int center_y,
+                    int width = 18, int height = 16);
+
 // Home catalog geometry shared by the page and the icon panel.
 namespace catalog_home {
-constexpr int kIconX = 39;
-constexpr int kIconY = 65;
-constexpr int kIconSize = 60;
-constexpr int kIconCenterY = kIconY + kIconSize / 2;
-constexpr int kDetailsX = 148;
-constexpr int kDetailsRight = 315;
+// Content edges: the category's left key and the header counters' right end.
+constexpr int kLeft = 9;
+constexpr int kRight = 312;
+// Left rows: the name's capitals, two tag rows and the permission icons,
+// centered as one block between the header and the bookmark tabs.
+constexpr int kTopY = 54;
+constexpr int kTagHeight = 17;
+// Clears the 20 px name, including its descenders.
+constexpr int kTagRow1Y = kTopY + 23;
+constexpr int kTagRow2Y = kTagRow1Y + kTagHeight + 3;
+constexpr int kPermissionSize = 14;
+constexpr int kPermissionsY = kTagRow2Y + kTagHeight + 6;
+// The icon on the right fills the height between the header and the bookmark
+// tabs, centered on the left block.
+constexpr int kIconSize = 100;
+constexpr int kIconX = kRight - kIconSize;
+constexpr int kIconCenterY = (kTopY + kPermissionsY + kPermissionSize) / 2;
+constexpr int kIconY = kIconCenterY - kIconSize / 2;
+constexpr int kDetailsX = kLeft;
+constexpr int kDetailsRight = kIconX - 9;
 constexpr uint32_t kMuted = 0x8B949E;
 } // namespace catalog_home
 
@@ -87,7 +107,6 @@ public:
                 const AppDetailViewModel &model,
                 DetailMediaState &media, const std::vector<std::string> &screenshots,
                 const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
-                const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_packaged,
                 const std::function<void(const appstore::StoreApp &)> &draw_shortcuts);
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);

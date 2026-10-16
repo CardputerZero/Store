@@ -94,24 +94,36 @@ void field_chip(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
 }
 
 void field_value(lv_obj_t *parent, const std::string &value, int x, int y, int w,
-                 uint32_t color, HorizontalMarquee *marquee, const std::string &key)
+                 uint32_t color, HorizontalMarquee *marquee, const std::string &key,
+                 uint16_t size = 14)
 {
-    const lv_font_t *font = store_font(value, 14);
+    const lv_font_t *font = store_font(value, size);
     if (marquee)
         marquee_label(parent, value, x, y, w, font->line_height, font, color, *marquee, key);
     else
         label(parent, value, x, y, w, font->line_height, font, color, LV_LABEL_LONG_DOT);
 }
 
+// 12 px values so a full date and a size such as "1023.9 KB" fit their tags.
+constexpr uint16_t kHomeChipFontSize = 12;
+
 void home_field(lv_obj_t *root, const std::string &value, int x, int y, int w,
                 uint32_t color, HorizontalMarquee *marquee = nullptr,
                 const std::string &key = {})
 {
-    constexpr int height = 20, pad = 6;
+    constexpr int pad = 5, height = catalog_home::kTagHeight;
     field_chip(root, x, y, w, height, color);
-    const int line_height = store_font(value, 14)->line_height;
+    const int line_height = store_font(value, kHomeChipFontSize)->line_height;
     field_value(root, value, x + pad, y + (height - line_height) / 2, w - 2 * pad,
-                color, marquee, key);
+                color, marquee, key, kHomeChipFontSize);
+}
+
+// Top of a glyph's ink, measured from the top of the font's line box.
+int glyph_top(const lv_font_t *font, uint32_t letter)
+{
+    lv_font_glyph_dsc_t glyph = {};
+    if (!lv_font_get_glyph_dsc(font, &glyph, letter, 0)) return 0;
+    return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h;
 }
 
 void detail_field(lv_obj_t *parent, const char *caption, const std::string &value,
@@ -145,6 +157,84 @@ void edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towards_b
     lv_obj_set_style_bg_grad_opa(fade, towards_bottom ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
 }
 
+void permission_badge(lv_obj_t *parent, int x, int y, uint32_t color)
+{
+    constexpr int size = catalog_home::kPermissionSize;
+    lv_obj_t *badge = box(parent, x, y, size, size, color, color, 1, 4, LV_OPA_20);
+    lv_obj_set_style_border_opa(badge, LV_OPA_40, 0);
+}
+
+// Filled mark, so the glyph stays readable inside a 14 px badge.
+void permission_fill(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius = 0)
+{
+    box(parent, x, y, w, h, color, color, 0, radius);
+}
+
+// One badge per declared permission, in the registry's order.
+void permission_icons(lv_obj_t *parent, int x, int y, uint32_t permissions)
+{
+    constexpr int step = 18;
+    constexpr uint32_t color = 0x8B949E;
+    using appstore::kPermissionBackground;
+    using appstore::kPermissionCamera;
+    using appstore::kPermissionDisplay;
+    using appstore::kPermissionHardware;
+    using appstore::kPermissionImu;
+    using appstore::kPermissionMicrophone;
+    using appstore::kPermissionNetwork;
+    struct Item { uint32_t bit; void (*draw)(lv_obj_t *, int, int); };
+    const Item items[] = {
+        {kPermissionNetwork, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 6, y + 2, 2, 3, color);
+            permission_fill(parent, x + 4, y + 4, 6, 2, color);
+            permission_fill(parent, x + 6, y + 6, 2, 6, color);
+        }},
+        {kPermissionMicrophone, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 5, y + 2, 4, 6, color, 2);
+            permission_fill(parent, x + 3, y + 6, 2, 3, color);
+            permission_fill(parent, x + 9, y + 6, 2, 3, color);
+            permission_fill(parent, x + 3, y + 8, 8, 2, color);
+            permission_fill(parent, x + 6, y + 10, 2, 2, color);
+        }},
+        {kPermissionCamera, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 2, y + 5, 10, 6, color, 1);
+            permission_fill(parent, x + 4, y + 3, 3, 2, color);
+            box(parent, x + 5, y + 6, 4, 4, 0x081010, 0x081010, 0, 2);
+        }},
+        {kPermissionImu, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 3, y + 3, 8, 8, color, 4);
+            box(parent, x + 5, y + 5, 4, 4, 0x081010, 0x081010, 0, 2);
+        }},
+        {kPermissionHardware, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 3, y + 5, 8, 6, color, 1);
+            permission_fill(parent, x + 5, y + 2, 1, 3, color);
+            permission_fill(parent, x + 8, y + 2, 1, 3, color);
+        }},
+        {kPermissionBackground, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 3, y + 3, 8, 2, color);
+            permission_fill(parent, x + 6, y + 5, 2, 6, color);
+        }},
+        {kPermissionDisplay, [](lv_obj_t *parent, int x, int y) {
+            permission_badge(parent, x, y, color);
+            permission_fill(parent, x + 2, y + 3, 10, 6, color, 1);
+            permission_fill(parent, x + 6, y + 9, 2, 2, color);
+            permission_fill(parent, x + 4, y + 11, 6, 1, color);
+        }},
+    };
+    int drawn = 0;
+    for (const auto &item : items) {
+        if ((permissions & item.bit) == 0) continue;
+        item.draw(parent, x + drawn * step, y);
+        ++drawn;
+    }
+}
+
 void glide_page(lv_obj_t *document, DetailMediaState &media, uint32_t now)
 {
     const uint32_t remaining = media.page_glide_remaining(now);
@@ -165,19 +255,6 @@ void glide_page(lv_obj_t *document, DetailMediaState &media, uint32_t now)
         lv_obj_set_y(static_cast<lv_obj_t *>(anim->var), -media->page_scroll());
     });
     lv_anim_start(&animation);
-}
-
-void screenshot_arrow(lv_obj_t *root, int x, int y, bool right, uint32_t color)
-{
-    // Keep navigation visible without font glyphs when packaged arrows cannot load.
-    static const lv_point_precise_t left_points[] = {{9, 1}, {1, 9}, {9, 17}};
-    static const lv_point_precise_t right_points[] = {{1, 1}, {9, 9}, {1, 17}};
-    lv_obj_t *arrow = lv_line_create(root);
-    lv_line_set_points(arrow, right ? right_points : left_points, 3);
-    lv_obj_set_pos(arrow, x, y);
-    lv_obj_set_style_line_color(arrow, lv_color_hex(color), 0);
-    lv_obj_set_style_line_width(arrow, 2, 0);
-    lv_obj_set_style_line_rounded(arrow, true, 0);
 }
 
 void set_progress_scan_x(void *object, int32_t x)
@@ -227,6 +304,28 @@ int glyph_middle(const lv_font_t *font, uint32_t letter)
     lv_font_glyph_dsc_t glyph = {};
     if (!lv_font_get_glyph_dsc(font, &glyph, letter, 0)) return font->line_height / 2;
     return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h / 2;
+}
+
+void draw_arrow_key(lv_obj_t *parent, ArrowKey arrow, int center_x, int center_y,
+                    int width, int height)
+{
+    const int x = center_x - width / 2;
+    // Raised look: a lighter top fading to a darker bottom, with a hairline edge.
+    lv_obj_t *button = box(parent, x, center_y - height / 2, width, height, 0x34424D,
+                           0x4E5D69, 1, 5);
+    lv_obj_set_style_bg_grad_color(button, lv_color_hex(0x182127), 0);
+    lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, 0);
+
+    // Solid triangles, in ArrowKey order: left, up, right, down.
+    static const char *const glyphs[] = {"\xE2\x97\x80", "\xE2\x96\xB2", "\xE2\x96\xB6",
+                                         "\xE2\x96\xBC"};
+    static constexpr uint32_t codepoints[] = {0x25C0, 0x25B2, 0x25B6, 0x25BC};
+    const int index = static_cast<int>(arrow);
+    const lv_font_t *font = store_font(glyphs[index], 10);
+    lv_obj_t *glyph = label(parent, glyphs[index], x,
+                            center_y - glyph_middle(font, codepoints[index]), width,
+                            font->line_height, font, 0xFF7A45);
+    lv_obj_set_style_text_align(glyph, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
@@ -396,27 +495,33 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
               catalog_home::kIconCenterY - font->line_height, details_width,
               font->line_height * 2, font, 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        // Keep the name and its detail tags one block, centered on the icon.
+        // Fixed rows, whether or not an app declares permissions, so the block
+        // stays centered on the icon.
         const lv_font_t *name_font = store_font(model.name, 20, true);
-        constexpr int chip_height = 20, chip_gap = 3, name_gap = 4;
-        constexpr int chip_width = 70, column_gap = 4;
-        const int stack = name_font->line_height + name_gap + chip_height + chip_gap + chip_height;
-        // The name's line box keeps room below the baseline, so the block's
-        // center sits below its visible text. Nudge it down to match the icon.
-        int y = catalog_home::kIconCenterY - stack / 2 + 4;
-        marquee_label(root, model.name, catalog_home::kDetailsX, y, details_width,
+        constexpr int chip_width = 84, column_gap = 4;
+        marquee_label(root, model.name, catalog_home::kDetailsX,
+                      catalog_home::kTopY - glyph_top(name_font, 'H'), details_width,
                       name_font->line_height, name_font, 0xFFFFFF, title_marquee_, model.name);
-        y += name_font->line_height + name_gap;
+        const int value_x = catalog_home::kDetailsX + chip_width + column_gap;
         const int value_width = details_width - chip_width - column_gap;
-        home_field(root, model.version, catalog_home::kDetailsX, y, chip_width, kVersionColor);
-        home_field(root, model.author, catalog_home::kDetailsX + chip_width + column_gap, y,
-                   value_width, kMaintainerColor, &author_marquee_, model.name + model.author);
-        y += chip_height + chip_gap;
-        home_field(root, model.size, catalog_home::kDetailsX, y, chip_width, kSizeColor);
-        home_field(root, model.updated, catalog_home::kDetailsX + chip_width + column_gap, y,
-                   value_width, kDateColor);
+        home_field(root, model.version, catalog_home::kDetailsX, catalog_home::kTagRow1Y,
+                   chip_width, kVersionColor);
+        home_field(root, model.author, value_x, catalog_home::kTagRow1Y, value_width,
+                   kMaintainerColor, &author_marquee_, model.name + model.author);
+        home_field(root, model.size, catalog_home::kDetailsX, catalog_home::kTagRow2Y,
+                   chip_width, kSizeColor);
+        home_field(root, model.updated, value_x, catalog_home::kTagRow2Y, value_width,
+                   kDateColor);
+        permission_icons(root, catalog_home::kDetailsX, catalog_home::kPermissionsY,
+                         model.permissions);
     }
-    if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
+    if (model.show_status) {
+        // A status message temporarily takes over the permission row.
+        box(root, catalog_home::kDetailsX - 2, catalog_home::kPermissionsY - 1,
+            details_width + 4, 16, 0x081010, 0x081010, 0);
+        scrolling_status_label(root, model.status, catalog_home::kDetailsX,
+                               catalog_home::kPermissionsY + 1, details_width, 12);
+    }
     draw_shortcuts();
 }
 
@@ -497,7 +602,6 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
 void AppDetailPage::render(const PageRenderContext &context, const AppDetailViewModel &model,
                            DetailMediaState &media, const std::vector<std::string> &screenshots,
                            const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
-                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_packaged,
                            const std::function<void(const appstore::StoreApp &)> &draw_shortcuts)
 {
     context.prepare();
@@ -566,10 +670,8 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
         draw_thumbnail(document, screenshots[index], 20, shot_y);
         if (screenshots.size() > 1) {
             draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
-            if (!draw_packaged(document, "store_arrow_left.png", 5, shot_y + 35))
-                screenshot_arrow(document, 5, shot_y + 33, false, 0xFF6A3D);
-            if (!draw_packaged(document, "store_arrow_right.png", 304, shot_y + 35))
-                screenshot_arrow(document, 304, shot_y + 33, true, 0xFF6A3D);
+            draw_arrow_key(document, ArrowKey::Left, 10, shot_y + 42);
+            draw_arrow_key(document, ArrowKey::Right, 311, shot_y + 42);
         }
         y = shot_y + 85 + 10;
     }
