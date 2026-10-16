@@ -126,8 +126,26 @@ int main()
     assert(error.title == "OPERATION FAILED");
     assert(error.message == "Package operation failed.");
     auto initialization = factory.initialization();
-    assert(initialization.phase == "REGISTRY");
-    assert(initialization.detail == "Connecting to registry...");
+    assert(initialization.title == "Connecting…");
+    assert(initialization.percent == -1 && !initialization.failed);
+    session.sync.status.phase = "registry";
+    session.sync.status.percent = 40;
+    session.sync.status.url = "https://example.test/apps/registry.json";
+    initialization = factory.initialization();
+    assert(initialization.title == "Updating Catalog…");
+    assert(initialization.source == "example.test" && initialization.percent == 40);
+    session.sync.status.cancel_requested = true;
+    assert(factory.initialization().title == "Cancelling…");
+    session.sync.status = {};
+    // The alert gives the reason, then what to do about it.
+    session.sync.startup_failed = true;
+    session.error.message = "Wi-Fi unavailable";
+    initialization = factory.initialization();
+    assert(initialization.failed && initialization.error_title == "Cannot Connect to Store");
+    assert(initialization.error_message ==
+           "Wi-Fi unavailable. Check Wi\u2011Fi or change registries in Settings.");
+    session.sync.startup_failed = false;
+    session.error.clear();
 
     session.registry.entries().push_back(
         {"https://example.test/registry.json", "Example", "ok", "1", "now", "", "global", true, false});

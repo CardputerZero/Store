@@ -115,7 +115,11 @@ example `1 / 4`) follows up and down buttons, and the catalog size follows the
 Store icon.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
 install/reinstall, and `8` or Enter for details. AppStore syncs the registry
-automatically when it starts.
+automatically when it starts. The startup screen names the current step
+(connecting, updating the catalog, loading artwork, preparing apps) above a
+progress bar with the registry's host, and `Tab` opens settings. If no
+registry can be reached, an alert offers Exit or Settings; `Z/C` moves between
+them and Enter confirms.
 
 On the home and startup screens, a short `Esc` press opens the centered
 "Hold ESC for 3s to exit." hint. Press `Esc` again or another key to dismiss

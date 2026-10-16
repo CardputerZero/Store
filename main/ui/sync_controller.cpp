@@ -61,9 +61,9 @@ void SyncController::set_start_failure()
     session_.sync.status.phase = "network";
     session_.sync.status.detail = "Unable to start network check";
     session_.status.value() = "Network unavailable - press R to retry";
-    session_.error.title = "NETWORK FAILED";
-    session_.error.message = "No registry is reachable.";
-    session_.error.detail = "Exit Store or open settings to change registry addresses.";
+    session_.error.title = "Cannot Connect to Store";
+    session_.error.message = "The network check could not start.";
+    session_.error.detail.clear();
     if (dependencies_.render) dependencies_.render();
 }
 
@@ -103,11 +103,9 @@ void SyncController::continue_after_startup_failure(const std::string &detail)
     session_.sync.status.percent = -1;
     session_.sync.status.phase = "network";
     session_.sync.status.detail = detail.empty() ? "Network unavailable" : detail;
-    session_.error.title = "NETWORK FAILED";
-    session_.error.message = "No registry is reachable.";
-    session_.error.detail = detail.empty()
-        ? "Exit Store or open settings to change registry addresses."
-        : detail;
+    session_.error.title = "Cannot Connect to Store";
+    session_.error.message = detail.empty() ? "No registry could be reached." : detail;
+    session_.error.detail.clear();
     session_.status.value().clear();
     session_.screen = Screen::StartupSync;
 }

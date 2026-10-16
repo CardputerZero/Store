@@ -200,6 +200,8 @@ void AppStoreApp::draw_system_bar()
         lv_tick_elaps(g_runtime.session.sync.visible_until_tick) < 1000) {
         sync_active = true;
     }
+    // The startup screen shows the sync itself.
+    if (g_runtime.session.screen == Screen::StartupSync) sync_active = false;
     if (active_page_) {
         auto *sync_component = dynamic_cast<AppStoreSyncTopBarComponent *>(
             active_page_->top_bar_component("appstore.sync"));
@@ -449,8 +451,10 @@ AppStoreApp::AppStoreApp()
            [this]() { registry_actions_.request_refresh(); },
            [this]() { render_current_screen(); },
            []() {
+               // The startup screen animates on its own.
                return g_runtime.session.screen != Screen::Registry &&
-                      g_runtime.session.screen != Screen::RegistryEdit;
+                      g_runtime.session.screen != Screen::RegistryEdit &&
+                      g_runtime.session.screen != Screen::StartupSync;
            }}),
       input_controller_(
           runtime_.session, runtime_.package_jobs.state(), runtime_.exit, share_code_, catalog_actions_,

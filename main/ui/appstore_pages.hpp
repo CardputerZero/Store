@@ -78,8 +78,17 @@ public:
 class InitializationProgressPage : public AppStoreUiPage
 {
 public:
+    // draw_logo draws the Store icon in the size x size square at x, y.
     void render(const PageRenderContext &context,
-                const InitializationProgressViewModel &model);
+                const InitializationProgressViewModel &model,
+                const std::function<void(lv_obj_t *, int, int, int)> &draw_logo);
+private:
+    int progress_at(uint32_t now) const;
+
+    // The bar glides from the drawn value when progress is reported.
+    int progress_from_ = 0;
+    int progress_to_ = -1;
+    uint32_t progress_changed_at_ = 0;
 };
 
 class CatalogDisplayPage : public AppStoreUiPage

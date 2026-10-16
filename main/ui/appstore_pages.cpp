@@ -258,11 +258,6 @@ void glide_page(lv_obj_t *document, DetailMediaState &media, uint32_t now)
     lv_anim_start(&animation);
 }
 
-void set_progress_scan_x(void *object, int32_t x)
-{
-    lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
-}
-
 void modal_backdrop(lv_obj_t *root)
 {
     lv_obj_t *obj = lv_obj_create(root);
@@ -274,6 +269,130 @@ void modal_backdrop(lv_obj_t *root)
     lv_obj_set_style_blur_backdrop(obj, true, 0);
     lv_obj_set_style_blur_radius(obj, 6, 0);
     lv_obj_set_style_blur_quality(obj, LV_BLUR_QUALITY_SPEED, 0);
+}
+
+// The startup screen follows Apple's dark system colors.
+constexpr uint32_t kPageBackground = 0x081010;
+constexpr uint32_t kSecondaryText = 0x8E8E93;
+constexpr uint32_t kSystemBlue = 0x0A84FF;
+constexpr uint32_t kSystemGray = 0x3A3A3C;
+
+namespace startup {
+constexpr int kLogoSize = 44;
+constexpr int kLogoY = 30;
+// The artwork has its own padding, so the visible gap is larger than this.
+constexpr int kTitleCapsY = kLogoY + kLogoSize + 9;
+constexpr int kBarWidth = 184;
+constexpr int kBarHeight = 4;
+constexpr int kBarX = (320 - kBarWidth) / 2;
+constexpr int kBarY = kTitleCapsY + 24;
+constexpr int kCaptionY = kBarY + kBarHeight + 7;
+constexpr int kHintMiddle = 154;
+constexpr int kSweepWidth = 56;
+constexpr uint32_t kSweepMs = 1400;
+constexpr uint32_t kProgressGlideMs = 400;
+} // namespace startup
+
+int text_width(const std::string &text, const lv_font_t *font)
+{
+    lv_point_t size = {};
+    lv_text_get_size(&size, text.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+// A key name in a small keycap, then what the key does, centered on center_x.
+void key_hint(lv_obj_t *root, const char *key, const char *action, int center_x, int middle)
+{
+    const lv_font_t *key_font = store_font(key, 10);
+    const lv_font_t *action_font = store_font(action, 12);
+    constexpr int pad = 5, gap = 6, cap_height = 15;
+    const int cap_width = text_width(key, key_font) + 2 * pad;
+    const int action_width = text_width(action, action_font);
+    const int x = center_x - (cap_width + gap + action_width) / 2;
+    box(root, x, middle - cap_height / 2, cap_width, cap_height, kPageBackground, 0x48484A, 1, 4);
+    label(root, key, x + pad, middle - glyph_middle(key_font, 'b'), cap_width - pad,
+          key_font->line_height, key_font, kSecondaryText);
+    label(root, action, x + cap_width + gap, middle - glyph_middle(action_font, 'S'),
+          action_width + 2, action_font->line_height, action_font, kSecondaryText);
+}
+
+// Indeterminate progress: a short segment sweeping across the track. Timed by
+// the clock, so redrawing the page does not restart it.
+void sweep_progress(lv_obj_t *track)
+{
+    using namespace startup;
+    lv_obj_t *segment = box(track, -kSweepWidth, 0, kSweepWidth, kBarHeight, kSystemBlue,
+                            kSystemBlue, 0, kBarHeight / 2);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, segment);
+    // The callback only runs when this value changes, so let it change every tick.
+    lv_anim_set_values(&animation, 0, static_cast<int32_t>(kSweepMs));
+    lv_anim_set_duration(&animation, kSweepMs);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        // Cubic ease-in-out from off the left edge to off the right edge.
+        const int64_t p = static_cast<int64_t>(lv_tick_get() % kSweepMs) * 1024 / kSweepMs;
+        const int64_t q = 1024 - p;
+        const int64_t eased = p < 512 ? 4 * p * p * p / (1024 * 1024)
+                                      : 1024 - 4 * q * q * q / (1024 * 1024);
+        lv_obj_set_x(static_cast<lv_obj_t *>(anim->var),
+                     static_cast<int32_t>(-kSweepWidth + (kBarWidth + kSweepWidth) * eased / 1024));
+    });
+    lv_anim_start(&animation);
+}
+
+int progress_width(int percent)
+{
+    using namespace startup;
+    if (percent <= 0) return 0;
+    return std::max(kBarHeight, kBarWidth * std::min(percent, 100) / 100);
+}
+
+// An alert in the style of Apple's: title, message, and two buttons, the
+// focused one filled.
+void startup_alert(lv_obj_t *root, const InitializationProgressViewModel &model)
+{
+    modal_backdrop(root);
+    constexpr int width = 256, x = (320 - width) / 2, pad = 14, line_space = 2;
+    constexpr int button_height = 26, button_gap = 8;
+    const lv_font_t *title_font = store_font(model.error_title, 15, true);
+    const lv_font_t *body_font = store_font(model.error_message, 12);
+    lv_point_t body = {};
+    lv_text_get_size(&body, model.error_message.c_str(), body_font, 0, line_space,
+                     width - 2 * pad, LV_TEXT_FLAG_NONE);
+    const int body_height =
+        std::min<int>(body.y, 3 * body_font->line_height + 2 * line_space);
+    const int height =
+        pad + title_font->line_height + 4 + body_height + 14 + button_height + pad;
+    const int y = 20 + (150 - height) / 2;
+    box(root, x, y, width, height, 0x1C1C1E, 0x2C2C2E, 1, 14);
+
+    int row = y + pad;
+    center_strong_label(root, model.error_title, x + pad, row, width - 2 * pad,
+                        title_font->line_height, title_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+    row += title_font->line_height + 4;
+    lv_obj_t *message = center_label(root, model.error_message, x + pad, row, width - 2 * pad,
+                                     body_height, body_font, kSecondaryText, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_line_space(message, line_space, 0);
+    row += body_height + 14;
+
+    const int button_width = (width - 2 * pad - button_gap) / 2;
+    const char *const buttons[] = {"Exit", "Settings"};
+    for (int i = 0; i < 2; ++i) {
+        const bool focused = model.failure_focus == i;
+        const int button_x = x + pad + i * (button_width + button_gap);
+        const uint32_t fill = focused ? kSystemBlue : kSystemGray;
+        box(root, button_x, row, button_width, button_height, fill, fill, 0, 8);
+        const lv_font_t *font = store_font(buttons[i], 13);
+        const int text_y = row + button_height / 2 - glyph_middle(font, 'E');
+        if (focused)
+            center_strong_label(root, buttons[i], button_x, text_y, button_width,
+                                font->line_height, font, 0xFFFFFF);
+        else
+            center_label(root, buttons[i], button_x, text_y, button_width, font->line_height,
+                         font, 0xFFFFFF);
+    }
 }
 
 void scrolling_status_label(lv_obj_t *root, const std::string &text, int x, int y, int w, int h,
@@ -405,76 +524,78 @@ void AppStoreUiPage::activate()
     cp0_lvgl_start_app_page(*this);
 }
 
-void InitializationProgressPage::render(const PageRenderContext &context,
-                                        const InitializationProgressViewModel &model)
+void InitializationProgressPage::render(
+    const PageRenderContext &context, const InitializationProgressViewModel &model,
+    const std::function<void(lv_obj_t *, int, int, int)> &draw_logo)
 {
+    using namespace startup;
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x101B2D, 0x101B2D, 0);
-    const bool preparing_catalog = model.phase == "CATALOG";
-    label(root, preparing_catalog ? "Preparing App Catalog" : "Checking Network",
-          8, 24, 190, 15, &lv_font_montserrat_12, 0xFFFFFF);
-    label(root, "Hold ESC", 254, 24, 60, 14, &lv_font_montserrat_10, 0xAECBFA);
-    center_strong_label(root, appstore::upper_ascii(model.phase), 28, 47, 264, 16,
-                        &lv_font_montserrat_12, 0x58A6FF, LV_LABEL_LONG_DOT);
-    label(root, appstore::one_line(model.url, 62), 18, 68, 284, 20,
-          &lv_font_montserrat_10, 0xC9D1D9, LV_LABEL_LONG_DOT);
-    box(root, 20, 94, 280, 15, 0x111923, 0x30363D, 1, 3);
-    for (int i = 0; i < 7; ++i) box(root, 24 + i * 39, 98, 28, 7, 0x162235, 0x162235, 0, 2);
-    if (model.percent >= 0) {
-        const int fill = std::max(5, std::min(272, model.percent * 272 / 100));
-        box(root, 24, 98, fill, 7, 0x2FEC8D, 0x2FEC8D, 0, 2);
-        box(root, std::max(24, std::min(286, 24 + fill - 4)), 96, 8, 11,
-            0xD8FF6A, 0xD8FF6A, 0, 3);
-    } else {
-        lv_obj_t *scan = box(root, 24, 97, 52, 9, 0x2FEC8D, 0xD8FF6A, 1, 3);
-        lv_anim_t animation;
-        lv_anim_init(&animation);
-        lv_anim_set_var(&animation, scan);
-        lv_anim_set_values(&animation, 24, 244);
-        lv_anim_set_duration(&animation, 900);
-        lv_anim_set_playback_duration(&animation, 900);
-        lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
-        lv_anim_set_exec_cb(&animation, set_progress_scan_x);
-        lv_anim_start(&animation);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
+    draw_logo(root, (320 - kLogoSize) / 2, kLogoY, kLogoSize);
+    if (model.failed) {
+        startup_alert(root, model);
+        return;
     }
-    center_label(root, appstore::one_line(model.detail, 52), 18, 119, 284, 14,
-                 &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
-    center_strong_label(root, model.cancel_requested ? "Cancelling..." :
-                        (preparing_catalog ? "Building app list...   Tab: Settings" :
-                         "Tab: Settings   Hold ESC: Exit"), 18, 151, 284, 12,
-                        &lv_font_montserrat_10, 0xCCCC33, LV_LABEL_LONG_DOT);
-    if (!model.failed) return;
 
-    modal_backdrop(root);
-    box(root, 16, 27, 288, 136, 0x111923, 0xF85149, 2, 4);
-    box(root, 16, 27, 288, 24, 0x8B2F34, 0x8B2F34, 0);
-    center_strong_label(root, model.error_title, 32, 32, 256, 15,
-                        &lv_font_montserrat_12, 0xFFFFFF, LV_LABEL_LONG_DOT);
-    center_strong_label(root, appstore::one_line(model.error_message, 38), 30, 61, 260, 15,
-                        &lv_font_montserrat_12, 0xFFD2D2, LV_LABEL_LONG_DOT);
-    int y = 82;
-    for (const auto &line_text : model.error_detail_lines) {
-        center_label(root, appstore::one_line(line_text, 44), 30, y, 260, 12,
-                     &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
-        y += 13;
-        if (y > 95) break;
+    const lv_font_t *title_font = store_font(model.title, 17, true);
+    center_strong_label(root, model.title, 10, kTitleCapsY - glyph_top(title_font, 'C'), 300,
+                        title_font->line_height, title_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+
+    lv_obj_t *track = box(root, kBarX, kBarY, kBarWidth, kBarHeight, kSystemGray, kSystemGray, 0,
+                          kBarHeight / 2);
+    lv_obj_set_style_clip_corner(track, true, 0);
+    const uint32_t now = lv_tick_get();
+    if (model.percent != progress_to_) {
+        // Glide on from the drawn value; a new phase starts from empty.
+        progress_from_ = progress_to_ >= 0 && model.percent > progress_to_ ? progress_at(now) : 0;
+        progress_to_ = model.percent;
+        progress_changed_at_ = now;
     }
-    const bool exit_focused = model.failure_focus == 0;
-    const bool settings_focused = model.failure_focus == 1;
-    box(root, 45, 119, 92, 19, exit_focused ? 0x8B2F34 : 0x4B1F24,
-        exit_focused ? 0xCCCC33 : 0xF85149, exit_focused ? 2 : 1, 2);
-    center_strong_label(root, "EXIT", 49, 123, 84, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
-    box(root, 166, 119, 109, 19, settings_focused ? 0x2EA043 : 0x1A6A2A,
-        settings_focused ? 0xCCCC33 : 0x2EA043, settings_focused ? 2 : 1, 2);
-    center_strong_label(root, "SETTINGS", 170, 123, 101, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
-    center_label(root, "Tab: Settings   Enter confirm", 48, 146, 224, 12,
-                 &lv_font_montserrat_10, 0xCCCC33);
+    if (model.percent < 0) {
+        sweep_progress(track);
+    } else {
+        lv_obj_t *fill = box(track, 0, 0, progress_width(progress_at(now)), kBarHeight,
+                             kSystemBlue, kSystemBlue, 0, kBarHeight / 2);
+        const uint32_t remaining = kProgressGlideMs - std::min(kProgressGlideMs, now - progress_changed_at_);
+        if (remaining > 0) {
+            lv_anim_t animation;
+            lv_anim_init(&animation);
+            lv_anim_set_var(&animation, fill);
+            lv_anim_set_user_data(&animation, this);
+            lv_anim_set_values(&animation, 0, static_cast<int32_t>(remaining));
+            lv_anim_set_duration(&animation, remaining);
+            lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+                auto *page = static_cast<InitializationProgressPage *>(lv_anim_get_user_data(anim));
+                lv_obj_set_width(static_cast<lv_obj_t *>(anim->var),
+                                 progress_width(page->progress_at(lv_tick_get())));
+            });
+            lv_anim_set_completed_cb(&animation, [](lv_anim_t *anim) {
+                auto *page = static_cast<InitializationProgressPage *>(lv_anim_get_user_data(anim));
+                lv_obj_set_width(static_cast<lv_obj_t *>(anim->var), progress_width(page->progress_to_));
+            });
+            lv_anim_start(&animation);
+        }
+    }
+
+    std::string caption = model.source;
+    if (model.percent >= 0)
+        caption += (caption.empty() ? "" : " \xC2\xB7 ") + std::to_string(model.percent) + "%";
+    const lv_font_t *caption_font = store_font(caption, 11);
+    center_label(root, caption, 10, kCaptionY, 300, caption_font->line_height, caption_font,
+                 kSecondaryText, LV_LABEL_LONG_DOT);
+    key_hint(root, "tab", "Settings", 160, kHintMiddle);
+}
+
+int InitializationProgressPage::progress_at(uint32_t now) const
+{
+    const uint32_t elapsed = now - progress_changed_at_;
+    if (progress_to_ < 0 || elapsed >= startup::kProgressGlideMs) return progress_to_;
+    // Quadratic ease-out.
+    const int64_t left = startup::kProgressGlideMs - elapsed;
+    return progress_to_ - static_cast<int>((progress_to_ - progress_from_) * left * left /
+                                           (startup::kProgressGlideMs * startup::kProgressGlideMs));
 }
 
 void CatalogDisplayPage::render(const PageRenderContext &context,

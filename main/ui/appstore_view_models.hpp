@@ -15,16 +15,14 @@
 namespace appstore_ui {
 
 struct InitializationProgressViewModel {
-    std::string phase;
-    std::string url;
-    std::string detail;
+    std::string title;
+    // Host of the registry being synced.
+    std::string source;
     int percent = -1;
-    bool cancel_requested = false;
     bool failed = false;
     int failure_focus = 0;
     std::string error_title;
     std::string error_message;
-    std::vector<std::string> error_detail_lines;
 };
 
 struct CatalogDisplayViewModel {

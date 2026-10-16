@@ -106,6 +106,19 @@ int header_count(lv_obj_t *root, const std::string &text, int right, int middle)
     return right - width;
 }
 
+// The Store icon scaled into the size x size square at x, y; false if it is missing.
+bool draw_store_icon(lv_obj_t *root, AppStoreImageRenderer &images, int x, int y, int size)
+{
+    lv_obj_t *icon = images.draw_packaged(root, "store_100.png", x, y);
+    if (!icon) return false;
+    const int scale = std::max(1, std::min(size * 256 / lv_obj_get_width(icon),
+                                           size * 256 / lv_obj_get_height(icon)));
+    lv_image_set_scale(icon, static_cast<uint16_t>(scale));
+    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
+    lv_obj_set_size(icon, size, size);
+    return true;
+}
+
 // Catalog size: Store icon, then the count. Returns the icon's left edge.
 int draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images, int total,
                        int right, int middle)
@@ -115,14 +128,7 @@ int draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images, int total,
     constexpr int icon_size = 18;
     const int icon_x = header_count(root, std::to_string(total), right, middle) -
                        kCounterIconGap - icon_size;
-    if (lv_obj_t *icon = images.draw_packaged(root, "store_100.png", icon_x, 0)) {
-        const int scale = std::max(1, std::min(icon_size * 256 / lv_obj_get_width(icon),
-                                               icon_size * 256 / lv_obj_get_height(icon)));
-        lv_image_set_scale(icon, static_cast<uint16_t>(scale));
-        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
-        lv_obj_set_size(icon, icon_size, icon_size);
-        lv_obj_set_y(icon, middle - icon_size / 2);
-    } else {
+    if (!draw_store_icon(root, images, icon_x, middle - icon_size / 2, icon_size)) {
         const lv_font_t *font = store_font("", 14);
         strong_label(root, "*", icon_x, middle - glyph_middle(font, '*'), icon_size,
                      font->line_height, font, catalog_home::kMuted);
@@ -251,7 +257,11 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
     rendered_root_ = nullptr;
     switch (screen) {
         case Screen::StartupSync:
-            initialization_page_.render(context(initialization_page_), view_models_.initialization());
+            initialization_page_.render(
+                context(initialization_page_), view_models_.initialization(),
+                [this](lv_obj_t *root, int x, int y, int size) {
+                    draw_store_icon(root, images_, x, y, size);
+                });
             break;
         case Screen::Home: {
             lv_obj_t *root = catalog_page_.screen();
