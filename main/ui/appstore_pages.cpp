@@ -148,13 +148,14 @@ int detail_info_row(lv_obj_t *parent, const char *caption, const std::string &va
 }
 
 // Content that runs under a fixed edge fades out instead of being cut mid-line.
-void edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towards_bottom)
+lv_obj_t *edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towards_bottom)
 {
     lv_obj_t *fade = box(root, 0, y, 320, height, color, color, 0);
     lv_obj_set_style_bg_grad_color(fade, lv_color_hex(color), 0);
     lv_obj_set_style_bg_grad_dir(fade, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_main_opa(fade, towards_bottom ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
     lv_obj_set_style_bg_grad_opa(fade, towards_bottom ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    return fade;
 }
 
 void permission_badge(lv_obj_t *parent, int x, int y, uint32_t color)
@@ -625,6 +626,12 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     lv_obj_remove_style_all(document);
     lv_obj_set_width(document, 320);
     lv_obj_clear_flag(document, LV_OBJ_FLAG_SCROLLABLE);
+    document_ = document;
+    // The fades are deleted along with the document when the page is cleared.
+    lv_obj_add_event_cb(document, [](lv_event_t *event) {
+        auto *page = static_cast<AppDetailPage *>(lv_event_get_user_data(event));
+        page->document_ = page->top_fade_ = page->bottom_fade_ = nullptr;
+    }, LV_EVENT_DELETE, this);
 
     const appstore::StoreApp &app = model.app;
     const lv_font_t *title_font = store_font(app.name, 20, true);
@@ -684,10 +691,9 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     lv_obj_set_y(document, -media.page_scroll_at(now));
     glide_page(document, media, now);
 
-    if (media.page_scroll() > 0)
-        edge_fade(root, viewport_y, 10, background, false);
-    if (media.page_scroll() < y - viewport_height)
-        edge_fade(root, viewport_y + viewport_height - 12, 12, background, true);
+    top_fade_ = edge_fade(root, viewport_y, 10, background, false);
+    bottom_fade_ = edge_fade(root, viewport_y + viewport_height - 12, 12, background, true);
+    show_page_edges(media);
     if (model.show_status) {
         // Fixed above the actions so feedback is visible at any scroll position.
         lv_obj_t *toast = box(root, 0, 132, 320, 17, background, 0x2A3A46, 1);
@@ -695,6 +701,25 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
         scrolling_status_label(root, model.status, 10, 135, 300, 12);
     }
     draw_shortcuts(app);
+}
+
+bool AppDetailPage::scroll(DetailMediaState &media)
+{
+    if (!document_) return false;
+    const uint32_t now = lv_tick_get();
+    lv_anim_delete(document_, nullptr);
+    lv_obj_set_y(document_, -media.page_scroll_at(now));
+    glide_page(document_, media, now);
+    show_page_edges(media);
+    return true;
+}
+
+void AppDetailPage::show_page_edges(const DetailMediaState &media)
+{
+    // Fade only the edges with more of the page beyond them.
+    lv_obj_set_flag(top_fade_, LV_OBJ_FLAG_HIDDEN, media.page_scroll() <= 0);
+    lv_obj_set_flag(bottom_fade_, LV_OBJ_FLAG_HIDDEN,
+                    media.page_scroll() >= media.page_max_scroll());
 }
 
 void AppDetailPage::render_confirmation(const PageRenderContext &context,

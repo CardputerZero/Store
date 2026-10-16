@@ -108,6 +108,9 @@ public:
                 DetailMediaState &media, const std::vector<std::string> &screenshots,
                 const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                 const std::function<void(const appstore::StoreApp &)> &draw_shortcuts);
+    // Glides the drawn page to the media's scroll target without rebuilding
+    // it. False when no detail page is drawn.
+    bool scroll(DetailMediaState &media);
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);
     void render_progress(const PageRenderContext &context,
@@ -118,8 +121,14 @@ public:
                                    const ScreenshotOverlayViewModel &model,
                                    const std::function<void()> &draw_background);
 private:
+    void show_page_edges(const DetailMediaState &media);
+
     HorizontalMarquee title_marquee_;
     HorizontalMarquee author_marquee_;
+    // The drawn page, cleared when the page content is deleted.
+    lv_obj_t *document_ = nullptr;
+    lv_obj_t *top_fade_ = nullptr;
+    lv_obj_t *bottom_fade_ = nullptr;
 };
 
 class StoreSettingsPage : public AppStoreUiPage

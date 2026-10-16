@@ -34,6 +34,8 @@
 #include "system_status_controller.hpp"
 #include "system_status_state.hpp"
 
+#include <future>
+
 namespace appstore_ui {
 
 class AppStoreApp : public InitializationProgressPage
@@ -68,6 +70,7 @@ private:
     void open_registry_add_screen();
     void execute_detail_confirmation();
     void repair_package_error();
+    static void frame_ready(lv_event_t *event);
 
     static int startup_argc_;
     static char **startup_argv_;
@@ -96,6 +99,9 @@ private:
     AppStoreTimerService timers_;
     AppStoreLifecycle lifecycle_;
     AppStoreUiPage *active_page_ = nullptr;
+    // A key changed the screen and the display has not drawn it yet.
+    bool key_frame_pending_ = false;
+    std::future<void> sound_warmup_;
 };
 
 } // namespace appstore_ui

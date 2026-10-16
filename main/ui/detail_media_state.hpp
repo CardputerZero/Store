@@ -23,6 +23,7 @@ public:
     void scroll_page(int delta, uint32_t now);
     // Target offset; the page glides there from where it was drawn.
     int page_scroll() const { return page_scroll_; }
+    int page_max_scroll() const { return page_max_scroll_; }
     // Time-based so a redraw in the middle of a glide continues it.
     int page_scroll_at(uint32_t now) const;
     uint32_t page_glide_remaining(uint32_t now) const;

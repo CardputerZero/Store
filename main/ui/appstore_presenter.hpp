@@ -27,6 +27,8 @@ public:
                       std::function<void()> draw_system_bar);
 
     void render(Screen screen, bool registry_operation_running);
+    // Moves the drawn detail page to its scroll target; false if it needs a render.
+    bool scroll_detail();
 
 private:
     PageRenderContext context(AppStoreUiPage &page);

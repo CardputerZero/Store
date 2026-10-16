@@ -123,6 +123,12 @@ the hint without activating the page underneath. On other screens, short
 `Esc` keeps its back/cancel behavior. Hold `Esc` for three seconds to exit
 from any screen, including while the hint is open.
 
+Keys play the launcher's system sounds: arrows and `F/X/Z/C` play the switch
+sound on every step, including repeats while held, and Enter, Tab, a short
+`Esc`, and shortcut keys play the enter sound. Typing in text fields is
+silent. A held key repeats no faster than the screen redraws, so the view
+keeps up and stops when the key is released.
+
 The detail page shows the app name, the same color-coded version, maintainer,
 size, and update fields as the home screen, the install state, the complete
 description, 160 x 85 screenshot previews loaded from the registry, and the

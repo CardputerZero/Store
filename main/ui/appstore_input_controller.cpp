@@ -14,6 +14,22 @@
 
 namespace appstore_ui {
 
+KeySound key_sound(const AppStoreKeyEvent &key, cp0_keyboard_input_context_t context)
+{
+    if (key.release) return KeySound::None;
+    const bool text = context == KBD_INPUT_CONTEXT_TEXT;
+    const bool arrow = key.code == KEY_UP || key.code == KEY_DOWN ||
+                       key.code == KEY_LEFT || key.code == KEY_RIGHT;
+    // F, X, Z and C type letters in text fields.
+    const bool alias = !text && (key.code == KEY_F || key.code == KEY_X ||
+                                 key.code == KEY_Z || key.code == KEY_C);
+    if (arrow || alias) return KeySound::Move;
+    if (key.repeated) return KeySound::None;
+    if (key.code == KEY_ENTER) return KeySound::Select;
+    if (text) return KeySound::None;
+    return key.ch != 0 || key.code == KEY_TAB ? KeySound::Select : KeySound::None;
+}
+
 AppStoreInputController::AppStoreInputController(
     AppStoreSessionState &session, PackageJobState &package_job, ExitController &exit,
     ShareCodeState &share_code, CatalogController &catalog,
@@ -31,6 +47,11 @@ bool AppStoreInputController::matches(const AppStoreKeyEvent &key, char ch,
     return key.ch == ch || key.code == code;
 }
 
+void AppStoreInputController::play(KeySound sound)
+{
+    if (sound != KeySound::None && actions_.play_sound) actions_.play_sound(sound);
+}
+
 void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
 {
     if (exit_.requested()) return;
@@ -42,6 +63,7 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             if (held) {
                 if (actions_.request_quit) actions_.request_quit();
             } else if (short_press) {
+                play(KeySound::Select);
                 if (session_.exit_hint_visible) {
                     session_.exit_hint_visible = false;
                 } else if (session_.screen == Screen::Home ||
@@ -71,6 +93,7 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
     }
     if (key.repeated && dismiss_key_ == key.code) return;
     dismiss_key_ = 0;
+    play(key_sound(key, appstore_input_context(session_.screen)));
 
     switch (session_.screen) {
         case Screen::StartupSync:
@@ -125,10 +148,14 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             break;
         case Screen::Detail: {
             appstore::StoreApp *app = catalog_.ensure_selected();
-            if (key.code == KEY_UP || key.code == KEY_F || key.ch == 'f')
-                detail_.scroll_page(-1, now);
-            else if (key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x')
-                detail_.scroll_page(1, now);
+            const bool up = key.code == KEY_UP || key.code == KEY_F || key.ch == 'f';
+            if (up || key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x') {
+                // Rebuilding the page takes longer than the key repeat interval,
+                // so move the drawn page unless a status toast has to be cleared.
+                const bool toast = !session_.status.value().empty();
+                detail_.scroll_page(up ? -1 : 1, now);
+                if (!toast && actions_.scroll_detail && actions_.scroll_detail()) return;
+            }
             else if (key.code == KEY_LEFT || key.code == KEY_Z || key.ch == 'z')
                 detail_.cycle_screenshot(-1, now);
             else if (key.code == KEY_RIGHT || key.code == KEY_C || key.ch == 'c')

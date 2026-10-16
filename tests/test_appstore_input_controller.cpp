@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <vector>
 
 namespace appstore {
 
@@ -63,6 +64,20 @@ int main()
     assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Detail) ==
            KBD_INPUT_CONTEXT_NAVIGATION);
     using namespace appstore_ui;
+
+    // Moving keys tick on every repeat; other keys sound once per press.
+    constexpr auto nav = KBD_INPUT_CONTEXT_NAVIGATION;
+    constexpr auto text = KBD_INPUT_CONTEXT_TEXT;
+    assert(key_sound({KEY_DOWN}, nav) == KeySound::Move);
+    assert(key_sound({KEY_X, 0, 'x', false, true}, nav) == KeySound::Move);
+    assert(key_sound({KEY_X, 0, 'x'}, text) == KeySound::None);
+    assert(key_sound({KEY_UP}, text) == KeySound::Move);
+    assert(key_sound({KEY_ENTER}, text) == KeySound::Select);
+    assert(key_sound({KEY_8, 0, '8'}, nav) == KeySound::Select);
+    assert(key_sound({KEY_8, 0, '8', false, true}, nav) == KeySound::None);
+    assert(key_sound({KEY_LEFTSHIFT}, nav) == KeySound::None);
+    assert(key_sound({KEY_DOWN, 0, 0, true}, nav) == KeySound::None);
+
     AppStoreSessionState session;
     PackageJobState package_job;
     ExitController exit;
@@ -91,6 +106,9 @@ int main()
     int registry_opens = 0;
     int registry_adds = 0;
     int confirmations = 0;
+    int page_moves = 0;
+    bool page_drawn = true;
+    std::vector<KeySound> sounds;
     AppStoreInputController input(
         session, package_job, exit, share_code, catalog, detail, registry, sync,
         {[&]() { ++quits; },
@@ -100,7 +118,9 @@ int main()
          },
          [&]() { ++registry_opens; session.screen = Screen::Registry; },
          [&]() { ++registry_adds; session.screen = Screen::RegistryEdit; },
-         [&]() { ++confirmations; }, [&]() { ++repairs; }, [&]() { ++renders; }});
+         [&]() { ++confirmations; }, [&]() { ++repairs; }, [&]() { ++renders; },
+         [&]() { ++page_moves; return page_drawn; },
+         [&](KeySound sound) { sounds.push_back(sound); }});
 
     session.catalog.categories() = {"All"};
     appstore::StoreApp first;
@@ -114,11 +134,12 @@ int main()
     session.screen = Screen::Home;
     input.handle({KEY_DOWN}, 100);
     assert(session.catalog.selected_index() == 1 && renders == 1);
+    assert(sounds == std::vector<KeySound>{KeySound::Move});
 
-    input.handle({KEY_5}, 110);
-    assert(session.screen == Screen::ShareCode);
+    input.handle({KEY_5, 0, '5'}, 110);
+    assert(session.screen == Screen::ShareCode && sounds.back() == KeySound::Select);
     input.handle({0, 0, 'A'}, 120);
-    assert(share_code.input() == "A");
+    assert(share_code.input() == "A" && sounds.size() == 2);
     input.handle({KEY_BACKSPACE}, 130);
     assert(share_code.input().empty());
 
@@ -208,11 +229,24 @@ int main()
     session.screen = Screen::Detail;
     const std::string detail_id = session.catalog.selected_app()->id;
     session.detail_media.normalize_page(detail_id, 400, 129);
+    const int renders_before_scroll = renders;
     input.handle({KEY_X, 0, 'x'}, 186);
     assert(session.detail_media.page_scroll() == 24);
     assert(session.detail_media.page_scroll_at(186) == 0);
-    input.handle({KEY_F, 0, 'f'}, 187);
-    assert(session.detail_media.page_scroll() == 0);
+    // Scrolling moves the drawn page instead of rebuilding it.
+    assert(page_moves == 1 && renders == renders_before_scroll);
+    input.handle({KEY_F, 0, 'f', false, true}, 187);
+    assert(session.detail_media.page_scroll() == 0 && sounds.back() == KeySound::Move);
+    // Clearing a status toast takes a full render.
+    session.status.value() = "Installed";
+    input.handle({KEY_X, 0, 'x'}, 188);
+    assert(session.status.value().empty() && page_moves == 2);
+    assert(renders == renders_before_scroll + 1);
+    // So does a page that is not drawn yet.
+    page_drawn = false;
+    input.handle({KEY_F, 0, 'f'}, 189);
+    assert(page_moves == 3 && renders == renders_before_scroll + 2);
+    page_drawn = true;
     session.catalog.selected_app()->images = "icon,one,two";
     input.handle({KEY_C, 0, 'c'}, 188);
     assert(session.detail_media.image_index() == 1 && session.screen == Screen::Detail);
@@ -221,9 +255,11 @@ int main()
     input.handle({KEY_5}, 190);
     assert(session.screen == Screen::Screenshots);
     session.screen = Screen::Detail;
+    const size_t sounds_before_back = sounds.size();
     input.handle({KEY_ESC}, 200);
     input.handle({KEY_ESC, 0, 0, true}, 300);
     assert(backs == 1 && session.screen == Screen::Home);
+    assert(sounds.size() == sounds_before_back + 1 && sounds.back() == KeySound::Select);
 
     session.screen = Screen::StartupSync;
     session.sync.startup_failed = false;

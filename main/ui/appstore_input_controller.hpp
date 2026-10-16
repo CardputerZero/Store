@@ -38,6 +38,12 @@ struct AppStoreKeyEvent {
     bool repeated = false;
 };
 
+// The launcher's key sounds: Move when a key moves through the screen, Select
+// when it acts.
+enum class KeySound { None, Move, Select };
+
+KeySound key_sound(const AppStoreKeyEvent &key, cp0_keyboard_input_context_t context);
+
 class AppStoreInputController
 {
 public:
@@ -49,6 +55,9 @@ public:
         std::function<void()> execute_confirmation;
         std::function<void()> repair_package;
         std::function<void()> render;
+        // Moves the drawn detail page to its scroll target; false if it needs a render.
+        std::function<bool()> scroll_detail;
+        std::function<void(KeySound)> play_sound;
     };
 
     AppStoreInputController(AppStoreSessionState &session, PackageJobState &package_job,
@@ -61,6 +70,7 @@ public:
 
 private:
     static bool matches(const AppStoreKeyEvent &key, char ch, uint32_t code);
+    void play(KeySound sound);
 
     AppStoreSessionState &session_;
     PackageJobState &package_job_;

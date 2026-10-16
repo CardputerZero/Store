@@ -241,6 +241,11 @@ bool AppStorePresenter::draw_detail_background(lv_obj_t *root,
            images_.draw_screenshot(root, screenshots[session_.detail_media.image_index()]);
 }
 
+bool AppStorePresenter::scroll_detail()
+{
+    return detail_page_.scroll(session_.detail_media);
+}
+
 void AppStorePresenter::render(Screen screen, bool registry_operation_running)
 {
     rendered_root_ = nullptr;

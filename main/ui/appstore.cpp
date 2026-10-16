@@ -111,6 +111,25 @@ void request_quit()
     cp0_lvgl_wake();
 }
 
+// The launcher's system sounds: slot 1 when it switches apps, slot 2 when it
+// launches one.
+void play_key_sound(KeySound sound) noexcept
+{
+    try {
+        cp0_signal_audio_api({"SystemSoundPlay", sound == KeySound::Move ? "1" : "2"},
+                             nullptr);
+    } catch (...) {
+    }
+}
+
+bool display_refresh_pending()
+{
+    lv_display_t *display = lv_display_get_default();
+    lv_timer_t *refresh = display ? lv_display_get_refr_timer(display) : nullptr;
+    // The refresh timer sleeps until something on screen changes.
+    return refresh && !lv_timer_get_paused(refresh);
+}
+
 void handle_signal(int)
 {
     request_quit();
@@ -364,12 +383,17 @@ void AppStoreApp::repair_package_error()
 
 void AppStoreApp::handle_key(const AppStoreKeyEvent &key)
 {
+    // Keys are handled back to back while more are queued, so repeats that
+    // come faster than a screen rebuilds would hold off drawing until the key
+    // is released. Skip repeats until the last key's change is on screen.
+    if (key.repeated && key.code != KEY_ESC && key_frame_pending_) return;
     const uint32_t key_start = lv_tick_get();
     const Screen before_screen = g_runtime.session.screen;
     app_tracef("handle_key begin screen=%s code=%u ch=%d release=%d repeat=%d",
                screen_name(before_screen), key.code, static_cast<int>(key.ch),
                key.release ? 1 : 0, key.repeated ? 1 : 0);
     input_controller_.handle(key, key_start);
+    key_frame_pending_ = display_refresh_pending();
     app_tracef("handle_key end elapsed=%ums before=%s after=%s code=%u ch=%d",
                lv_tick_elaps(key_start), screen_name(before_screen), screen_name(g_runtime.session.screen),
                key.code, static_cast<int>(key.ch));
@@ -435,7 +459,9 @@ AppStoreApp::AppStoreApp()
            [this]() { open_registry_screen(); }, [this]() { open_registry_add_screen(); },
            [this]() { execute_detail_confirmation(); },
            [this]() { repair_package_error(); },
-           [this]() { render_current_screen(); }}),
+           [this]() { render_current_screen(); },
+           [this]() { return presenter_.scroll_detail(); },
+           [](KeySound sound) { play_key_sound(sound); }}),
       event_adapter_(
           [this](const AppStoreKeyEvent &key) { handle_key(key); },
           [this](const cp0_battery_info_t &info) {
@@ -540,13 +566,27 @@ AppStoreApp::AppStoreApp()
     bind_page(settings_page_);
     current_ = this;
     set_active_page(*this);
+    lv_display_add_event_cb(lv_display_get_default(), frame_ready, LV_EVENT_REFR_READY, this);
+    // Open the sound output in the background so the first key click is on time.
+    sound_warmup_ = std::async(std::launch::async, []() {
+        try {
+            cp0_signal_audio_api({"SystemSoundPrepare"}, nullptr);
+        } catch (...) {
+        }
+    });
     ui_init(startup_argc_, startup_argv_);
 }
 
 AppStoreApp::~AppStoreApp()
 {
+    lv_display_remove_event_cb_with_user_data(lv_display_get_default(), frame_ready, this);
     ui_deinit();
     current_ = nullptr;
+}
+
+void AppStoreApp::frame_ready(lv_event_t *event)
+{
+    static_cast<AppStoreApp *>(lv_event_get_user_data(event))->key_frame_pending_ = false;
 }
 
 void AppStoreApp::set_arguments(int argc, char **argv)
