@@ -134,6 +134,14 @@ void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
 
 } // namespace
 
+int glyph_middle(const lv_font_t *font, uint32_t letter)
+{
+    if (!font) return 0;
+    lv_font_glyph_dsc_t glyph = {};
+    if (!lv_font_get_glyph_dsc(font, &glyph, letter, 0)) return font->line_height / 2;
+    return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h / 2;
+}
+
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
                         int width, int height, const lv_font_t *font, uint32_t color,
                         HorizontalMarquee &state, const std::string &key,
@@ -294,24 +302,32 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
     box(root, 0, 20, 320, 150, 0x081010, 0x081010, 0);
     draw_category();
     draw_icon();
-    label(root, "In category: " + std::to_string(model.show_empty ? 0 : model.selected_index + 1) +
-          "/" + std::to_string(model.app_count), 138, 26, 116, 18,
-          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
-    label(root, "All: " + std::to_string(model.total_count), 256, 26, 64, 18,
-          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
+    const int details_width = catalog_home::kDetailsRight - catalog_home::kDetailsX;
     if (model.show_empty) {
-        label(root, model.empty_message, 137, 76, 178, 40,
-              store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
+        const lv_font_t *font = store_font(model.empty_message, 14);
+        label(root, model.empty_message, catalog_home::kDetailsX,
+              catalog_home::kIconCenterY - font->line_height, details_width,
+              font->line_height * 2, font, 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        marquee_label(root, model.name, 137, 62, 178, 27, store_font(model.name, 20, true),
-                      0xFFFFFF, title_marquee_, model.name);
-        label(root, model.version, 137, 90, 66, 22,
+        // Keep the name and its details one block, centered on the icon.
+        const lv_font_t *name_font = store_font(model.name, 20, true);
+        constexpr int row_height = 22, row_gap = 3, name_gap = 4;
+        const int stack = name_font->line_height + name_gap + row_height + row_gap + row_height;
+        // The name's line box keeps room below the baseline, so the block's
+        // center sits below its visible text. Nudge it down to match the icon.
+        int y = catalog_home::kIconCenterY - stack / 2 + 4;
+        marquee_label(root, model.name, catalog_home::kDetailsX, y, details_width,
+                      name_font->line_height, name_font, 0xFFFFFF, title_marquee_, model.name);
+        y += name_font->line_height + name_gap;
+        label(root, model.version, catalog_home::kDetailsX, y, 66, row_height,
               store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        marquee_label(root, model.author, 207, 90, 108, 22, store_font(model.author, 14),
-                      0xFFFFFF, author_marquee_, model.name + model.author);
-        label(root, model.size, 137, 110, 68, 22,
+        marquee_label(root, model.author, catalog_home::kDetailsX + 70, y, details_width - 70,
+                      row_height, store_font(model.author, 14), 0xFFFFFF,
+                      author_marquee_, model.name + model.author);
+        y += row_height + row_gap;
+        label(root, model.size, catalog_home::kDetailsX, y, 68, row_height,
               store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        label(root, model.updated, 207, 110, 110, 22,
+        label(root, model.updated, catalog_home::kDetailsX + 70, y, details_width - 70, row_height,
               store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
     }
     if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);

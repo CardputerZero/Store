@@ -19,6 +19,20 @@ namespace appstore_ui {
 
 void render_exit_hint(lv_obj_t *root);
 
+// Middle of a glyph's ink, measured from the top of the font's line box.
+int glyph_middle(const lv_font_t *font, uint32_t letter);
+
+// Home catalog geometry shared by the page and the icon panel.
+namespace catalog_home {
+constexpr int kIconX = 39;
+constexpr int kIconY = 65;
+constexpr int kIconSize = 60;
+constexpr int kIconCenterY = kIconY + kIconSize / 2;
+constexpr int kDetailsX = 148;
+constexpr int kDetailsRight = 315;
+constexpr uint32_t kMuted = 0x8B949E;
+} // namespace catalog_home
+
 // One line of text; when it does not fit, it bounces like APPLaunch's
 // selected title. Text that fits is placed according to align.
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,

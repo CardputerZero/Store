@@ -106,7 +106,10 @@ pause for two seconds, scroll horizontally at 40 pixels per second to the end,
 pause again, and scroll back. Status-bar updates keep the current reading
 position, and labels never scroll vertically. In search results only the
 selected name scrolls; the others end with an ellipsis.
-The header shows the selection within the category and the total catalog size.
+The category's position in the category list (for example `2 / 5`) is shown
+under its name. The selected app's position in the category (for example
+`1 / 4`) is shown beside its icon, and the catalog size is shown next to the
+Store icon on the category row.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
 install/reinstall, and `8` or Enter for details. AppStore syncs the registry
 automatically when it starts.

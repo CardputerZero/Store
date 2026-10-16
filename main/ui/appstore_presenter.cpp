@@ -15,9 +15,10 @@
 namespace appstore_ui {
 namespace {
 
-constexpr int kHomeIconX = 39;
-constexpr int kHomeIconY = 65;
-constexpr int kHomeIconSize = 60;
+constexpr int kCategoryX = 28;
+constexpr int kCategoryY = 24;
+constexpr int kCategoryWidth = 86;
+constexpr int kCategoryPositionY = 37;
 constexpr uint32_t kStatusVisibleMs = 6000;
 
 lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y, int w, int h,
@@ -79,6 +80,46 @@ std::string app_initial(const appstore::StoreApp &app)
     return "A";
 }
 
+// Selection inside the current category, centered on the icon.
+void draw_selection_position(lv_obj_t *root, int index, int count)
+{
+    const std::string text = std::to_string(index) + " / " + std::to_string(count);
+    const lv_font_t *font = store_font("", 12);
+    // The name and tags start at kDetailsX; stay clear of them.
+    label(root, text, catalog_home::kIconX + catalog_home::kIconSize + 4,
+          catalog_home::kIconCenterY - glyph_middle(font, '0'),
+          catalog_home::kDetailsX - (catalog_home::kIconX + catalog_home::kIconSize + 4),
+          font->line_height, font, catalog_home::kMuted);
+}
+
+// Whole-catalog count, sitting on the same line as the category name.
+void draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images,
+                        int count, int category_middle)
+{
+    // The Store artwork is a badge with its own padding, so the box has to be
+    // larger than the category's letter height to look the same size.
+    constexpr int icon_size = 18, gap = 4, right = 312;
+    const std::string text = std::to_string(count);
+    const lv_font_t *font = store_font("", 14);
+    lv_point_t size = {};
+    lv_text_get_size(&size, text.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const int text_x = right - size.x;
+    label(root, text, text_x, category_middle - glyph_middle(font, '0'), size.x + 4,
+          font->line_height, font, catalog_home::kMuted);
+    const int icon_x = text_x - gap - icon_size;
+    if (lv_obj_t *icon = images.draw_packaged(root, "store_100.png", icon_x, 0)) {
+        const int scale = std::max(1, std::min(icon_size * 256 / lv_obj_get_width(icon),
+                                               icon_size * 256 / lv_obj_get_height(icon)));
+        lv_image_set_scale(icon, static_cast<uint16_t>(scale));
+        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
+        lv_obj_set_size(icon, icon_size, icon_size);
+        lv_obj_set_y(icon, category_middle - icon_size / 2);
+        return;
+    }
+    strong_label(root, "*", icon_x, category_middle - glyph_middle(font, '*'), icon_size,
+                 font->line_height, font, catalog_home::kMuted);
+}
+
 } // namespace
 
 AppStorePresenter::AppStorePresenter(
@@ -116,32 +157,60 @@ void AppStorePresenter::prepare(AppStoreUiPage &page)
 
 void AppStorePresenter::draw_category_selector(lv_obj_t *root)
 {
-    if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
-        strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    marquee_label(root, category, 28, 24, 86, 20, store_font(category, 14, true), 0xFFFFFF,
+    const lv_font_t *font = store_font(category, 14, true);
+    marquee_label(root, category, kCategoryX, kCategoryY, kCategoryWidth, 20, font, 0xFFFFFF,
                   category_marquee_, category, LV_TEXT_ALIGN_CENTER);
-    if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
-        strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
+    // The name is uppercase: center on its capitals, not on the line box,
+    // which also reserves room below the baseline for descenders.
+    const int middle = kCategoryY + glyph_middle(font, 'H');
+    auto chevron = [&](const char *image, const char *fallback, int x) {
+        if (lv_obj_t *arrow = images_.draw_packaged(root, image, x, 0)) {
+            lv_obj_set_y(arrow, middle - lv_obj_get_height(arrow) / 2);
+            return;
+        }
+        const lv_font_t *arrow_font = store_font("", 20);
+        strong_label(root, fallback, x, middle - glyph_middle(arrow_font, fallback[0]), 14,
+                     arrow_font->line_height, arrow_font, 0xFF6A3D);
+    };
+    chevron("store_arrow_left.png", "<", 14);
+    chevron("store_arrow_right.png", ">", 116);
+    draw_catalog_total(root, images_, static_cast<int>(session_.catalog.apps().size()), middle);
+
+    const auto &categories = session_.catalog.categories();
+    const int index = session_.catalog.category_index();
+    if (index < 0 || index >= static_cast<int>(categories.size())) return;
+    lv_obj_t *position = label(root, std::to_string(index + 1) + " / " +
+                               std::to_string(categories.size()),
+                               kCategoryX, kCategoryPositionY, kCategoryWidth, 12,
+                               &lv_font_montserrat_10, 0x8B949E);
+    lv_obj_set_style_text_align(position, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
                                               const appstore::StoreApp *app)
 {
-    const int arrow_x = kHomeIconX + (kHomeIconSize - 14) / 2;
-    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 48))
-        center_strong_label(root, "^", kHomeIconX + 16, 46, 28, 18,
+    using catalog_home::kIconSize;
+    using catalog_home::kIconX;
+    using catalog_home::kIconY;
+    const int arrow_x = kIconX + (kIconSize - 14) / 2;
+    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 51))
+        center_strong_label(root, "^", kIconX + 16, 49, 28, 18,
                             &lv_font_montserrat_20, 0xFF6A3D);
     if (!app) {
-        center_strong_label(root, "-", kHomeIconX + 22, kHomeIconY + 24, 24, 22,
+        center_strong_label(root, "-", kIconX + 22, kIconY + 24, 24, 22,
                             &lv_font_montserrat_20, 0x9A9A9A);
     } else if (!images_.draw_app_icon(root, session_.app_dir, *app)) {
-        center_strong_label(root, app_initial(*app), kHomeIconX, kHomeIconY + 21,
-                            kHomeIconSize, 28, &lv_font_montserrat_20,
+        center_strong_label(root, app_initial(*app), kIconX, kIconY + 21,
+                            kIconSize, 28, &lv_font_montserrat_20,
                             app->installed ? 0x52D05D : 0xFFFFFF);
     }
-    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 136))
-        center_strong_label(root, "v", kHomeIconX + 16, 134, 28, 18,
+    const int index = session_.catalog.selected_index();
+    const int count = static_cast<int>(session_.catalog.visible().size());
+    if (index >= 0 && index < count)
+        draw_selection_position(root, index + 1, count);
+    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 133))
+        center_strong_label(root, "v", kIconX + 16, 131, 28, 18,
                             &lv_font_montserrat_20, 0xFF6A3D);
 }
 
@@ -185,7 +254,7 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                     return images_.draw_thumbnail(parent, path, x, y);
                 },
                 [this](lv_obj_t *parent, const std::string &name, int x, int y) {
-                    return images_.draw_packaged(parent, name, x, y);
+                    return images_.draw_packaged(parent, name, x, y) != nullptr;
                 },
                 [this](const appstore::StoreApp &app) {
                     AppStoreShortcutBar::render_detail(

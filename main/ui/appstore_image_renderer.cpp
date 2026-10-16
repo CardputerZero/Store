@@ -6,6 +6,7 @@
 
 #include "appstore_image_renderer.hpp"
 
+#include "appstore_pages.hpp"
 #include "appstore_paths.hpp"
 #include "cp0_lvgl_app.h"
 
@@ -25,23 +26,23 @@ const char *AppStoreImageRenderer::retain_source(std::string source)
     return sources_.back().c_str();
 }
 
-bool AppStoreImageRenderer::draw_packaged(lv_obj_t *root, const std::string &name, int x, int y)
+lv_obj_t *AppStoreImageRenderer::draw_packaged(lv_obj_t *root, const std::string &name, int x, int y)
 {
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
     const char *path = cp0_file_path_c(name.c_str());
-    if (!path || !path[0]) return false;
+    if (!path || !path[0]) return nullptr;
     lv_obj_t *image = lv_image_create(root);
     lv_image_set_src(image, path);
     lv_obj_update_layout(image);
     if (lv_obj_get_width(image) <= 0 || lv_obj_get_height(image) <= 0) {
         lv_obj_delete(image);
-        return false;
+        return nullptr;
     }
     lv_obj_set_pos(image, x, y);
-    return true;
+    return image;
 #else
     (void)root; (void)name; (void)x; (void)y;
-    return false;
+    return nullptr;
 #endif
 }
 
@@ -51,7 +52,8 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
     const std::string path = icon_file_path(app_dir, app);
     if (path.empty()) return false;
-    constexpr int x = 39, y = 65, width = 60, height = 60;
+    constexpr int x = catalog_home::kIconX, y = catalog_home::kIconY;
+    constexpr int width = catalog_home::kIconSize, height = catalog_home::kIconSize;
     lv_obj_t *clip = lv_obj_create(root);
     lv_obj_remove_style_all(clip);
     lv_obj_set_pos(clip, x, y);
