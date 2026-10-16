@@ -34,6 +34,7 @@ struct CatalogDisplayViewModel {
     std::string size;
     std::string updated;
     std::string empty_message;
+    uint32_t permissions = 0;
     int selected_index = 0;
     int app_count = 0;
     int total_count = 0;

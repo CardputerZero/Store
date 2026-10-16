@@ -1115,13 +1115,25 @@ std::string summary_output()
         const json assets = app.value("assets", json::object());
         const auto screenshot_refs = string_list(assets.contains("screenshots")
             ? assets["screenshots"] : app.value("screenshots", json::array()));
+        const json declared = app.value("permissions", json::object());
+        uint32_t permissions = 0;
+        auto permit = [&](const char *name, uint32_t bit) {
+            if (declared.value(name, false)) permissions |= bit;
+        };
+        permit("network", 1u << 0);
+        permit("microphone", 1u << 1);
+        permit("camera", 1u << 2);
+        permit("imu", 1u << 3);
+        permit("additional_hardware", 1u << 4);
+        permit("background_service", 1u << 5);
+        permit("external_display", 1u << 6);
         emit(out, "APP", app_key(app), localized(app, "title"), app.value("version", ""),
              app_categories.empty() ? "Other" : app_categories.front(),
              installed(app) ? "1" : "0", (app.value("featured", false) || review(app) == "approved") ? "1" : "0",
              field(download.value("size", json("online"))), full_description,
              author(app), source, image_text.str(), dependencies, app.value("share_code", ""), app.value("_registry_name", ""),
              app.value("updated_at", app.value("published_at", "")), review(app), review(app) == "approved" ? "1" : "0", state.version,
-             category_text.str(), package_name(app), screenshot_refs.size());
+             category_text.str(), package_name(app), screenshot_refs.size(), permissions);
     }
     return out.str();
 }

@@ -74,6 +74,7 @@ static json app(const std::string &id, const std::string &review) {
       {"description","Full detailed description"},
       {"icon","https://assets.invalid/"+id+".png"},
       {"app",{{"dependencies",{"lib-one","lib-two"}},{"applaunch",{{"desktop_entry","applications/demo.desktop"},{"exec","/usr/bin/demo-package"}}}}},
+      {"permissions",{{"network",true},{"camera",id=="app-id"},{"microphone",false}}},
       {"download",{{"type","deb"},{"package","demo-package"},{"url","https://example.invalid/demo.deb"},{"md5",getenv("FAKE_MD5")},{"size","42K"}}}};
     result["author"] = id == "app-id"
         ? json{{"display_name", "Tester"}, {"github", "ignored-user"}}
@@ -121,7 +122,8 @@ static void registry_cases() {
     Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries")); CHECK(has(sum,"CAT\tUtilities")); CHECK(has(sum,"CAT\tInstalled"));
     CHECK(has(sum,"APP\tapp-id\tDemo Local\t1.2.0\tUtilities")); CHECK(has(sum,"\tTester\thttps://example.invalid/source\t"));
     CHECK(has(sum,"Localized summary\\nFull detailed description"));
-    CHECK(has(sum,"\tdemo-package\t0"));
+    // Screenshot count, then the permissions bit set: network (1) and camera (4).
+    CHECK(has(sum,"\tdemo-package\t0\t5"));
     CHECK(call({"--clear-registry-cache"}).rc==0);
     setenv("FAKE_DROP_DURING_ASSETS","1",1);
     Result dropped=call({"--sync"});

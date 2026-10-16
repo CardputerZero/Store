@@ -95,6 +95,7 @@ CatalogDisplayViewModel AppStoreViewModelFactory::catalog(
         model.author = single_line(app->author.empty() ? "-" : app->author);
         model.size = human_size(app->size);
         model.updated = app->updated_at.empty() ? "-" : app->updated_at.substr(0, 10);
+        model.permissions = app->permissions;
     }
     return model;
 }

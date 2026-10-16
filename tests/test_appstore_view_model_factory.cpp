@@ -82,7 +82,9 @@ int main()
     assert(detail.title == "A very long application name that must stay intact  2.0");
     assert(detail.version == "2.0" && detail.author == "-");
 
+    app.permissions = appstore::kPermissionNetwork | appstore::kPermissionCamera;
     catalog = factory.catalog(100, 6000);
+    assert(catalog.permissions == (appstore::kPermissionNetwork | appstore::kPermissionCamera));
     assert(catalog.version == "2.0");
     assert(catalog.size == "19.6 MB");
     assert(catalog.updated == "2026-07-23");
