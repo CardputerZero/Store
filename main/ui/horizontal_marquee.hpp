@@ -13,7 +13,14 @@
 namespace appstore_ui {
 
 // Keep the reading position across redraws of the system/status bars.
+// Long text bounces like APPLaunch's selected title: hold, scroll to the end,
+// hold, scroll back. Speed and clamps match LVGL's LONG_SCROLL default.
 struct HorizontalMarquee {
+    static constexpr uint32_t kPauseMs = 2000;
+    static constexpr uint32_t kPixelsPerSecond = 40;
+    static constexpr uint32_t kMinTravelMs = 300;
+    static constexpr uint32_t kMaxTravelMs = 10000;
+
     std::string key;
     uint32_t started_at = 0;
 
@@ -27,15 +34,18 @@ struct HorizontalMarquee {
     int offset(uint32_t now, int distance) const
     {
         if (distance <= 0) return 0;
-        constexpr uint32_t start_pause = 2000, end_pause = 1500;
-        constexpr uint32_t pixels_per_second = 20;
-        const uint32_t travel = (static_cast<uint64_t>(distance) * 1000 +
-                                 pixels_per_second - 1) / pixels_per_second;
+        const uint32_t travel = std::clamp<uint32_t>(
+            static_cast<uint32_t>(static_cast<uint64_t>(distance) * 1000 / kPixelsPerSecond),
+            kMinTravelMs, kMaxTravelMs);
         const uint32_t phase = static_cast<uint32_t>(now - started_at) %
-                              (start_pause + travel + end_pause);
-        if (phase < start_pause) return 0;
-        return -std::min(distance, static_cast<int>(
-            static_cast<uint64_t>(phase - start_pause) * pixels_per_second / 1000));
+                               (2 * (kPauseMs + travel));
+        const auto moved = [&](uint32_t elapsed) {
+            return static_cast<int>(static_cast<uint64_t>(elapsed) * distance / travel);
+        };
+        if (phase < kPauseMs) return 0;
+        if (phase < kPauseMs + travel) return -moved(phase - kPauseMs);
+        if (phase < 2 * kPauseMs + travel) return -distance;
+        return moved(phase - 2 * kPauseMs - travel) - distance;
     }
 };
 

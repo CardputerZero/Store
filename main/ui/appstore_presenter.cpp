@@ -119,10 +119,8 @@ void AppStorePresenter::draw_category_selector(lv_obj_t *root)
     if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
         strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    lv_obj_t *name = label(root, category, 28, 24, 86, 20,
-                          store_font(category, 14, true), 0xFFFFFF,
-                          LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    marquee_label(root, category, 28, 24, 86, 20, store_font(category, 14, true), 0xFFFFFF,
+                  category_marquee_, category, LV_TEXT_ALIGN_CENTER);
     if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
         strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
 }

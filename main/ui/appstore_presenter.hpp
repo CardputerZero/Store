@@ -45,6 +45,7 @@ private:
     AppStoreImageRenderer &images_;
     std::function<void()> draw_system_bar_;
     lv_obj_t *rendered_root_ = nullptr;
+    HorizontalMarquee category_marquee_;
 };
 
 } // namespace appstore_ui

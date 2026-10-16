@@ -19,6 +19,13 @@ namespace appstore_ui {
 
 void render_exit_hint(lv_obj_t *root);
 
+// One line of text; when it does not fit, it bounces like APPLaunch's
+// selected title. Text that fits is placed according to align.
+lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
+                        int width, int height, const lv_font_t *font, uint32_t color,
+                        HorizontalMarquee &state, const std::string &key,
+                        lv_text_align_t align = LV_TEXT_ALIGN_LEFT, bool strong = false);
+
 struct PageRenderContext {
     std::function<void()> prepare;
     std::function<void()> draw_system_bar;
@@ -56,6 +63,7 @@ public:
 private:
     HorizontalMarquee title_marquee_;
     HorizontalMarquee author_marquee_;
+    HorizontalMarquee search_marquee_;
 };
 
 class AppDetailPage : public AppStoreUiPage

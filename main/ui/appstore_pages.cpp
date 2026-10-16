@@ -39,39 +39,6 @@ lv_obj_t *center_label(lv_obj_t *root, const std::string &text, int x, int y, in
     return obj;
 }
 
-void horizontal_label(lv_obj_t *root, const std::string &text, int x, int y,
-                      int width, int height, const lv_font_t *font,
-                      HorizontalMarquee &state, const std::string &key)
-{
-    state.select(key, lv_tick_get());
-    lv_obj_t *viewport = lv_obj_create(root);
-    lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, x, y);
-    lv_obj_set_size(viewport, width, height);
-    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
-    // A content-sized, single-line label never starts LVGL's vertical marquee.
-    lv_obj_t *content = label(viewport, text, 0, 0, LV_SIZE_CONTENT,
-                              font->line_height, font, 0xFFFFFF, LV_LABEL_LONG_CLIP);
-    lv_obj_update_layout(content);
-    const int distance = lv_obj_get_width(content) - width;
-    if (distance <= 0) return;
-    lv_obj_set_x(content, state.offset(lv_tick_get(), distance));
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, content);
-    lv_anim_set_user_data(&animation, &state);
-    lv_anim_set_values(&animation, 0, 1000);
-    lv_anim_set_duration(&animation, 1000);
-    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
-        auto *content = static_cast<lv_obj_t *>(anim->var);
-        auto *state = static_cast<HorizontalMarquee *>(lv_anim_get_user_data(anim));
-        const int distance = lv_obj_get_width(content) - lv_obj_get_width(lv_obj_get_parent(content));
-        lv_obj_set_x(content, state->offset(lv_tick_get(), distance));
-    });
-    lv_anim_start(&animation);
-}
-
 void strong_label(lv_obj_t *root, const std::string &text, int x, int y, int w, int h,
                   const lv_font_t *font, uint32_t color,
                   lv_label_long_mode_t mode = LV_LABEL_LONG_DOT)
@@ -166,6 +133,54 @@ void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
 }
 
 } // namespace
+
+lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
+                        int width, int height, const lv_font_t *font, uint32_t color,
+                        HorizontalMarquee &state, const std::string &key,
+                        lv_text_align_t align, bool strong)
+{
+    state.select(key, lv_tick_get());
+    lv_obj_t *viewport = lv_obj_create(parent);
+    lv_obj_remove_style_all(viewport);
+    lv_obj_set_pos(viewport, x, y);
+    lv_obj_set_size(viewport, width, height);
+    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+    // A content-sized, single-line label never starts LVGL's vertical marquee.
+    lv_obj_t *content = nullptr;
+    if (strong) {
+        content = lv_obj_create(viewport);
+        lv_obj_remove_style_all(content);
+        lv_obj_set_size(content, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+        label(content, text, 0, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+        label(content, text, 1, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+    } else {
+        content = label(viewport, text, 0, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+    }
+    lv_obj_update_layout(content);
+    const int distance = lv_obj_get_width(content) - width;
+    if (distance <= 0) {
+        if (align == LV_TEXT_ALIGN_CENTER) lv_obj_set_x(content, -distance / 2);
+        else if (align == LV_TEXT_ALIGN_RIGHT) lv_obj_set_x(content, -distance);
+        return viewport;
+    }
+    lv_obj_set_x(content, state.offset(lv_tick_get(), distance));
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, content);
+    lv_anim_set_user_data(&animation, &state);
+    lv_anim_set_values(&animation, 0, 1000);
+    lv_anim_set_duration(&animation, 1000);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        auto *content = static_cast<lv_obj_t *>(anim->var);
+        auto *state = static_cast<HorizontalMarquee *>(lv_anim_get_user_data(anim));
+        const int distance = lv_obj_get_width(content) - lv_obj_get_width(lv_obj_get_parent(content));
+        lv_obj_set_x(content, state->offset(lv_tick_get(), distance));
+    });
+    lv_anim_start(&animation);
+    return viewport;
+}
 
 void render_exit_hint(lv_obj_t *root)
 {
@@ -288,12 +303,12 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
         label(root, model.empty_message, 137, 76, 178, 40,
               store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        horizontal_label(root, model.name, 137, 62, 178, 27,
-                         store_font(model.name, 20, true), title_marquee_, model.name);
+        marquee_label(root, model.name, 137, 62, 178, 27, store_font(model.name, 20, true),
+                      0xFFFFFF, title_marquee_, model.name);
         label(root, model.version, 137, 90, 66, 22,
               store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        horizontal_label(root, model.author, 207, 90, 108, 22,
-                         store_font(model.author, 14), author_marquee_, model.name + model.author);
+        marquee_label(root, model.author, 207, 90, 108, 22, store_font(model.author, 14),
+                      0xFFFFFF, author_marquee_, model.name + model.author);
         label(root, model.size, 137, 110, 68, 22,
               store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
         label(root, model.updated, 207, 110, 110, 22,
@@ -355,12 +370,13 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
         box(root, 10, y, 300, 24, item.selected ? 0x142817 : 0x10171D,
             item.selected ? 0x7ED957 : 0x27313A, 1, 3);
         const std::string name = appstore::upper_ascii(item.name);
-        strong_label(root, name, 17, y + 2, 218, 14,
-                     context.font_for_text(name, item.selected ? &lv_font_montserrat_12 :
-                                           &lv_font_montserrat_10),
-                     item.selected ? 0xFFFFFF : 0xB8B8B8,
-                     item.selected && appstore::utf8_display_width(name) > 24
-                         ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+        const lv_font_t *name_font = context.font_for_text(
+            name, item.selected ? &lv_font_montserrat_12 : &lv_font_montserrat_10);
+        if (item.selected)
+            marquee_label(root, name, 17, y + 2, 218, 14, name_font, 0xFFFFFF,
+                          search_marquee_, name, LV_TEXT_ALIGN_LEFT, true);
+        else
+            strong_label(root, name, 17, y + 2, 218, 14, name_font, 0xB8B8B8, LV_LABEL_LONG_DOT);
         label(root, appstore::one_line(item.meta.empty() ? "-" : item.meta, 28),
               17, y + 14, 218, 9, &lv_font_montserrat_10,
               item.selected ? 0x7ED957 : 0x6E7681,
@@ -643,16 +659,16 @@ void StoreSettingsPage::render(const PageRenderContext &context,
         const uint32_t nav = model.focus == 1 ? 0xFF6A3D : 0x6E7681;
         label(root, "<", 6, 85, 16, 22, store_font("", 20), nav);
         label(root, ">", 302, 85, 16, 22, store_font("", 20), nav);
-        horizontal_label(root, entry.name, 24, 86, 194, 20,
-                         store_font(entry.name, 14), source_marquee_, entry.url + entry.name);
+        marquee_label(root, entry.name, 24, 86, 194, 20, store_font(entry.name, 14),
+                      0xFFFFFF, source_marquee_, entry.url + entry.name);
         lv_obj_t *count = label(root, entry.count + " apps", 224, 87, 72, 18,
                                store_font("", 12), 0xCCCC33, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
         label(root, "URL", 24, 111, 32, 18, store_font("", 12), 0x58A6FF);
         box(root, 60, 108, 236, 24, 0x111923, 0x2A3A46, 1, 2);
         const std::string url = entry.builtin ? model.registry_url : entry.url;
-        horizontal_label(root, url, 66, 112, 224, 18,
-                         store_font(url, 12), url_marquee_, url);
+        marquee_label(root, url, 66, 112, 224, 18, store_font(url, 12), 0xFFFFFF,
+                      url_marquee_, url);
     }
     if (!model.status.empty()) {
         // Keep the full status readable without taking space from the action row.

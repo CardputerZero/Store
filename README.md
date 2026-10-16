@@ -101,9 +101,11 @@ metadata taking precedence. On the home screen, use `Z/C` (left/right) to change
 category and `F/X` (up/down) to select an app. Installed filters catalog apps by
 their actual package installation state and refreshes after package operations.
 The Installed category is hidden when empty; removing its last app returns the
-selection to All. Long app names pause for two seconds, then scroll horizontally
-at 20 pixels per second, with another pause at the end. Status-bar updates keep
-the current reading position, and labels never scroll vertically.
+selection to All. Long names bounce like the selected APPLaunch title: they
+pause for two seconds, scroll horizontally at 40 pixels per second to the end,
+pause again, and scroll back. Status-bar updates keep the current reading
+position, and labels never scroll vertically. In search results only the
+selected name scrolls; the others end with an ellipsis.
 The header shows the selection within the category and the total catalog size.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
 install/reinstall, and `8` or Enter for details. AppStore syncs the registry
