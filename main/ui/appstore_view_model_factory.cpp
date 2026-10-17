@@ -234,8 +234,13 @@ StoreSettingsViewModel AppStoreViewModelFactory::settings(bool operation_running
 
 RegistryEditorViewModel AppStoreViewModelFactory::registry_editor() const
 {
-    return {!session_.registry.edit_url().empty(), session_.registry.name_input(),
-            session_.registry.input_url(), session_.registry.edit_focus()};
+    RegistryEditorViewModel model{!session_.registry.edit_url().empty(),
+                                  session_.registry.name_input(), session_.registry.input_url(),
+                                  session_.registry.edit_focus(), session_.registry.caret(),
+                                  session_.registry.editing_field(), {}, false};
+    model.status = session_.status.value();
+    model.status_is_error = !model.status.empty();
+    return model;
 }
 
 TextEntryViewModel AppStoreViewModelFactory::share_code() const

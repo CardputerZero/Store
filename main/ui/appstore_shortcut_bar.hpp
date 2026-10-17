@@ -21,6 +21,7 @@ public:
                               const appstore::StoreApp &app);
     static void render_settings(lv_obj_t *root, bool has_entry, bool builtin_entry,
                                 bool actions_available);
+    static void render_editor(lv_obj_t *root, bool save_active);
 };
 
 } // namespace appstore_ui

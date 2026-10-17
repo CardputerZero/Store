@@ -35,6 +35,12 @@ public:
     bool begin_edit_selected();
     void finish_edit();
 
+    // The caret sits on a byte boundary. Typing and deleting happen there, and
+    // left/right move it by one character.
+    void move_caret(int delta);
+    void insert_at_caret(char ch, size_t limit);
+    void erase_before_caret();
+
     bool schedule_region(const std::string &region, uint32_t now);
     std::optional<std::string> take_due_region(uint32_t now, uint32_t delay_ms,
                                                bool operation_running);
@@ -54,6 +60,10 @@ public:
     const std::string &name_input() const { return name_input_; }
     int &edit_focus() { return edit_focus_; }
     int edit_focus() const { return edit_focus_; }
+    size_t caret() const { return caret_; }
+    // Typing is open until Enter confirms the fields, which enables Save.
+    bool editing_field() const { return editing_field_; }
+    void set_editing_field(bool editing) { editing_field_ = editing; }
     const std::string &region_code() const { return region_code_; }
     const std::string &region_label() const { return region_label_; }
     const std::string &registry_url() const { return registry_url_; }
@@ -64,6 +74,8 @@ private:
     static std::string label_for_region(const std::string &region);
     std::string url_for_region(const std::string &region) const;
     void clamp_selection();
+    std::string &edited_field();
+    void clamp_caret();
 
     std::vector<std::string> lines_;
     std::vector<appstore::RegistryEntry> entries_;
@@ -73,6 +85,8 @@ private:
     std::string edit_url_;
     std::string name_input_;
     int edit_focus_ = 0;
+    size_t caret_ = 0;
+    bool editing_field_ = true;
     std::string region_code_ = "auto";
     std::string region_label_ = "Auto";
     std::string registry_url_ = kDefaultRegistryUrl;

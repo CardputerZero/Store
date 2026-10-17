@@ -8,6 +8,7 @@
 
 #include "appstore_client.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -136,6 +137,12 @@ struct RegistryEditorViewModel {
     std::string name;
     std::string url;
     int focus = 0;
+    // Byte offset of the caret in the focused field.
+    size_t caret = 0;
+    // Save stays inactive until Enter confirms the fields.
+    bool editing_field = true;
+    std::string status;
+    bool status_is_error = false;
 };
 
 } // namespace appstore_ui

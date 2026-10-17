@@ -44,6 +44,23 @@ int main()
     assert(state.edit_url().empty());
     assert(state.name_input().empty());
     assert(state.input_url() == appstore_ui::RegistryUiState::kDefaultRegistryUrl);
+    assert(state.caret() == 0);
+
+    // The caret edits in the middle of a field, not only at its end.
+    state.name_input() = "ac";
+    state.move_caret(1000);
+    state.move_caret(-1);
+    state.insert_at_caret('b', 48);
+    assert(state.name_input() == "abc" && state.caret() == 2);
+    state.erase_before_caret();
+    assert(state.name_input() == "ac" && state.caret() == 1);
+    state.input_url() = "héllo";
+    state.edit_focus() = 1;
+    state.move_caret(1000);
+    // Three characters back steps over both bytes of é's neighbour, not into it.
+    state.move_caret(-3);
+    state.insert_at_caret('X', 180);
+    assert(state.input_url() == "héXllo");
 
     std::cout << "registry UI state tests passed\n";
 }

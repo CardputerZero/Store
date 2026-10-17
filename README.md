@@ -92,11 +92,18 @@ Desktop-entry repair is best effort. Failure to find or rewrite an APPLaunch
 desktop entry is reported as `WARNING` after a successful package operation and
 does not change the verified package result.
 
-Multiple registries are supported. On the Registries settings screen, use the
-region radio buttons to choose the built-in Default or CN registry. Add another
-registry from the same screen or with `--add-registry`; the selected region
-registry and all enabled custom registries are synced and merged into one app
-list. Apps with the same UUID/share code are de-duplicated, with later registry
+Multiple registries are supported. The Settings screen uses the startup
+screen's dark look: a centered title, a segmented region control, and the
+selected registry in a grouped card. `F/X` (up/down) moves between the region
+and the registry; `Z/C` (left/right) changes the focused one. Choose Auto,
+Default, or CN. `4` adds a registry; edit, delete, and sync keep their keys. On the
+add and edit screen, `Fn+Z/C` moves the cursor through the focused field and
+Backspace deletes the character before it. Enter moves from Name to URL, from
+URL it confirms the fields and enables the Save tab, and from there it returns
+to Name. `8` saves while Save is active; while a field is open, `8` types.
+Add another registry from the same screen or with
+`--add-registry`; the selected region registry and all enabled custom
+registries are synced and merged into one app list. Apps with the same UUID/share code are de-duplicated, with later registry
 metadata taking precedence. On the home screen, use `Z/C` (left/right) to change
 category and `F/X` (up/down) to select an app. Installed filters catalog apps by
 their actual package installation state and refreshes after package operations.
@@ -129,8 +136,11 @@ from any screen, including while the hint is open.
 
 Keys play the launcher's system sounds: arrows and `F/X/Z/C` play the switch
 sound on every step, including repeats while held, and Enter, Tab, a short
-`Esc`, and shortcut keys play the enter sound. Typing in text fields is
-silent. A held key repeats no faster than the screen redraws, so the view
+`Esc`, and shortcut keys play the enter sound. Typing in the share-code and
+search fields is silent. The registry editor sounds too: typed characters,
+Backspace, and switching fields play the enter sound, and `Fn+Z/C` plays the
+switch sound. A held key repeats no faster than the screen redraws, and its sound keeps
+playing while the redraw waits, so the view
 keeps up and stops when the key is released.
 
 The detail page shows the app name, the same color-coded version, maintainer,

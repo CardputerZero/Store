@@ -312,9 +312,12 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                     !model.region_commit_pending);
             break;
         }
-        case Screen::RegistryEdit:
-            settings_page_.render_editor(context(settings_page_), view_models_.registry_editor());
+        case Screen::RegistryEdit: {
+            const RegistryEditorViewModel model = view_models_.registry_editor();
+            settings_page_.render_editor(context(settings_page_), model);
+            AppStoreShortcutBar::render_editor(settings_page_.screen(), !model.editing_field);
             break;
+        }
         case Screen::ShareCode:
             catalog_page_.render_text_entry(context(catalog_page_), view_models_.share_code());
             break;

@@ -67,6 +67,9 @@ public:
                             Actions actions);
 
     void handle(const AppStoreKeyEvent &key, uint32_t now);
+    // The click for a key, without acting on it. Used when a repeat arrives
+    // before the previous one has been drawn.
+    void play_feedback(const AppStoreKeyEvent &key);
 
 private:
     static bool matches(const AppStoreKeyEvent &key, char ch, uint32_t code);

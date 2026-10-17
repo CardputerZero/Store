@@ -8,6 +8,7 @@
 #include "appstore_task_service.hpp"
 #include "detached_worker_launcher.hpp"
 #include "input_keys.h"
+#include "keyboard_input.h"
 
 #include <cassert>
 #include <iostream>
@@ -194,6 +195,31 @@ int main()
     input.handle({KEY_X, 0, 'x'}, 162);
     assert(session.registry.edit_focus() == 1);
     assert(session.registry.input_url() == url_before_x + "x");
+    // Fn+Z/C moves the cursor; typing and Backspace happen at the cursor.
+    input.handle({KEY_Z, KBD_MOD_FN, 'z'}, 163);
+    input.handle({KEY_Y, 0, 'y'}, 164);
+    assert(session.registry.input_url() == url_before_x + "yx");
+    input.handle({KEY_C, KBD_MOD_FN, 'c'}, 165);
+    input.handle({KEY_BACKSPACE}, 166);
+    assert(session.registry.input_url() == url_before_x + "y");
+    // While a field is open, 8 types. Enter steps Name, then URL, then confirms.
+    input.handle({KEY_8, 0, '8'}, 167);
+    assert(session.registry.input_url() == url_before_x + "y8");
+    assert(session.registry.editing_field());
+    session.registry.edit_focus() = 0;
+    input.handle({KEY_ENTER}, 168);
+    assert(session.registry.editing_field() && session.registry.edit_focus() == 1);
+    input.handle({KEY_ENTER}, 168);
+    assert(!session.registry.editing_field());
+    input.handle({KEY_ENTER}, 168);
+    assert(session.registry.editing_field() && session.registry.edit_focus() == 0);
+    session.registry.name_input().clear();
+    input.handle({KEY_ENTER}, 168);
+    input.handle({KEY_ENTER}, 168);
+    input.handle({KEY_8, 0, '8'}, 169);
+    assert(session.screen == Screen::RegistryEdit);
+    assert(session.status.value() == "Name required");
+    assert(session.registry.input_url() == url_before_x + "y8");
 
     appstore::RegistryData registry_data;
     registry_data.entries.push_back(
@@ -206,9 +232,11 @@ int main()
     assert(session.registry.name_input() == "Example");
     session.screen = Screen::Registry;
     input.handle({KEY_4}, 180);
-    assert(session.screen == Screen::Registry && registry_adds == 0);
+    assert(session.screen == Screen::RegistryEdit && registry_adds == 1);
+    session.screen = Screen::Registry;
     input.handle({KEY_A, 0, 'a'}, 181);
-    assert(session.screen == Screen::Registry && registry_adds == 0);
+    assert(session.screen == Screen::RegistryEdit && registry_adds == 2);
+    session.screen = Screen::Registry;
     session.status.value().clear();
     input.handle({KEY_6}, 182);
     input.handle({KEY_T, 0, 't'}, 183);

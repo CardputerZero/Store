@@ -222,10 +222,18 @@ bool RegistryController::poll_region_debounce(uint32_t now, uint32_t delay_ms)
 void RegistryController::submit_editor()
 {
     if (session_.registry.name_input().empty() || session_.registry.input_url().empty()) {
-        session_.status.value() = "Name and URL required";
+        session_.status.value() = session_.registry.name_input().empty() ? "Name required"
+                                                                        : "URL required";
+        // Leave the missing field open, so the rejection is visible and editable.
+        session_.registry.edit_focus() = session_.registry.name_input().empty() ? 0 : 1;
+        session_.registry.move_caret(1000);
+        session_.registry.set_editing_field(true);
         return;
     }
-    if (!operation_available()) return;
+    if (!operation_available()) {
+        session_.registry.set_editing_field(true);
+        return;
+    }
     RegistryOpRequest request;
     request.kind = session_.registry.edit_url().empty()
         ? RegistryOpKind::AddRegistry : RegistryOpKind::EditRegistry;

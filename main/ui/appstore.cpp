@@ -388,7 +388,12 @@ void AppStoreApp::handle_key(const AppStoreKeyEvent &key)
     // Keys are handled back to back while more are queued, so repeats that
     // come faster than a screen rebuilds would hold off drawing until the key
     // is released. Skip repeats until the last key's change is on screen.
-    if (key.repeated && key.code != KEY_ESC && key_frame_pending_) return;
+    // A held key still clicks while its redraw waits, so the feedback keeps up
+    // with the repeat instead of going silent.
+    if (key.repeated && key.code != KEY_ESC && key_frame_pending_) {
+        input_controller_.play_feedback(key);
+        return;
+    }
     const uint32_t key_start = lv_tick_get();
     const Screen before_screen = g_runtime.session.screen;
     app_tracef("handle_key begin screen=%s code=%u ch=%d release=%d repeat=%d",

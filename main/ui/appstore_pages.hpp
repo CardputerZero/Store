@@ -149,7 +149,6 @@ public:
                        const RegistryEditorViewModel &model);
 private:
     HorizontalMarquee source_marquee_;
-    HorizontalMarquee url_marquee_;
 };
 
 } // namespace appstore_ui

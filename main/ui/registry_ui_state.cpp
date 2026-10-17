@@ -7,6 +7,7 @@
 #include "registry_ui_state.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace appstore_ui {
 namespace {
@@ -98,6 +99,8 @@ void RegistryUiState::begin_add()
     name_input_.clear();
     input_url_ = kDefaultRegistryUrl;
     edit_focus_ = 0;
+    caret_ = 0;
+    editing_field_ = true;
 }
 
 bool RegistryUiState::begin_edit_selected()
@@ -108,12 +111,59 @@ bool RegistryUiState::begin_edit_selected()
     input_url_ = entry->url;
     name_input_ = entry->name;
     edit_focus_ = 0;
+    caret_ = name_input_.size();
+    editing_field_ = true;
     return true;
 }
 
 void RegistryUiState::finish_edit()
 {
     edit_url_.clear();
+}
+
+std::string &RegistryUiState::edited_field()
+{
+    return edit_focus_ == 0 ? name_input_ : input_url_;
+}
+
+void RegistryUiState::clamp_caret()
+{
+    caret_ = std::min(caret_, edited_field().size());
+}
+
+void RegistryUiState::move_caret(int delta)
+{
+    clamp_caret();
+    const std::string &field = edited_field();
+    while (delta < 0 && caret_ > 0) {
+        // Step back over a whole UTF-8 character, not just its last byte.
+        do { --caret_; } while (caret_ > 0 && (static_cast<uint8_t>(field[caret_]) & 0xC0) == 0x80);
+        ++delta;
+    }
+    while (delta > 0 && caret_ < field.size()) {
+        ++caret_;
+        while (caret_ < field.size() && (static_cast<uint8_t>(field[caret_]) & 0xC0) == 0x80) ++caret_;
+        --delta;
+    }
+}
+
+void RegistryUiState::insert_at_caret(char ch, size_t limit)
+{
+    std::string &field = edited_field();
+    clamp_caret();
+    if (field.size() >= limit) return;
+    field.insert(caret_, 1, ch);
+    ++caret_;
+}
+
+void RegistryUiState::erase_before_caret()
+{
+    std::string &field = edited_field();
+    clamp_caret();
+    if (caret_ == 0) return;
+    const size_t end = caret_;
+    move_caret(-1);
+    field.erase(caret_, end - caret_);
 }
 
 bool RegistryUiState::schedule_region(const std::string &region, uint32_t now)

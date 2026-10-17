@@ -8,6 +8,7 @@
 
 #include "appstore_client.hpp"
 #include "input_keys.h"
+#include "keyboard_input.h"
 #include "startup_network_flow.hpp"
 
 #include <utility>
@@ -45,6 +46,20 @@ bool AppStoreInputController::matches(const AppStoreKeyEvent &key, char ch,
                                       uint32_t code)
 {
     return key.ch == ch || key.code == code;
+}
+
+void AppStoreInputController::play_feedback(const AppStoreKeyEvent &key)
+{
+    KeySound sound = key_sound(key, appstore_input_context(session_.screen));
+    if (session_.screen == Screen::RegistryEdit && sound == KeySound::None) {
+        const bool fn = (key.mods & KBD_MOD_FN) != 0;
+        if (fn && (key.code == KEY_Z || key.code == KEY_C ||
+                   key.code == KEY_LEFT || key.code == KEY_RIGHT))
+            sound = KeySound::Move;
+        else if (key.ch != 0 || key.code == KEY_BACKSPACE)
+            sound = KeySound::Select;
+    }
+    play(sound);
 }
 
 void AppStoreInputController::play(KeySound sound)
@@ -93,7 +108,9 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
     }
     if (key.repeated && dismiss_key_ == key.code) return;
     dismiss_key_ = 0;
-    play(key_sound(key, appstore_input_context(session_.screen)));
+    // The registry editor sounds like the other screens, including typed
+    // characters. Share code and search stay silent while typing.
+    play_feedback(key);
 
     switch (session_.screen) {
         case Screen::StartupSync:
@@ -230,7 +247,9 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             }
             else if (key.code == KEY_UP || key.code == KEY_DOWN)
                 session_.registry.page_focus() = 1 - session_.registry.page_focus();
-            else if (matches(key, '5', KEY_5) || matches(key, 'e', KEY_E) ||
+            else if (matches(key, '4', KEY_4) || matches(key, 'a', KEY_A)) {
+                if (actions_.open_registry_add) actions_.open_registry_add();
+            } else if (matches(key, '5', KEY_5) || matches(key, 'e', KEY_E) ||
                        (key.code == KEY_ENTER && session_.registry.page_focus() == 1)) {
                 const auto *entry = session_.registry.selected_entry();
                 if (entry && !entry->builtin) registry_.edit_selected();
@@ -252,27 +271,43 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             }
             break;
         case Screen::RegistryEdit: {
-            std::string &field = session_.registry.edit_focus() == 0 ?
-                session_.registry.name_input() : session_.registry.input_url();
-            if (key.code == KEY_BACKSPACE && !field.empty())
-                field.pop_back();
-            else if (key.code == KEY_ENTER)
-                registry_.submit_editor();
-            else if (key.code == KEY_TAB || key.code == KEY_UP || key.code == KEY_DOWN)
+            const bool fn = (key.mods & KBD_MOD_FN) != 0;
+            const size_t limit = session_.registry.edit_focus() == 0 ? 48 : 180;
+            if (!session_.registry.editing_field()) {
+                // The fields are confirmed, so 8 saves and Enter loops to Name.
+                if (matches(key, '8', KEY_8)) {
+                    registry_.submit_editor();
+                    break;
+                }
+                if (key.code == KEY_ENTER) {
+                    session_.registry.edit_focus() = 0;
+                    session_.registry.move_caret(1000);
+                    session_.registry.set_editing_field(true);
+                    break;
+                }
+                // Anything else starts editing again, then does what it says.
+                session_.registry.set_editing_field(true);
+            }
+            if (key.code == KEY_BACKSPACE)
+                session_.registry.erase_before_caret();
+            else if (key.code == KEY_ENTER) {
+                // Name confirms into URL; URL confirms the fields and enables Save.
+                if (session_.registry.edit_focus() == 0) {
+                    session_.registry.edit_focus() = 1;
+                    session_.registry.move_caret(1000);
+                } else {
+                    session_.registry.set_editing_field(false);
+                }
+            } else if (key.code == KEY_TAB || key.code == KEY_UP || key.code == KEY_DOWN) {
                 session_.registry.edit_focus() = 1 - session_.registry.edit_focus();
-            else if (key.ch >= 32 && key.ch <= 126 &&
-                     (session_.registry.edit_focus() == 0 ?
-                      session_.registry.name_input().size() < 48 :
-                      session_.registry.input_url().size() < 180))
-                field.push_back(key.ch);
-            else if (key.code == KEY_LEFT && !session_.registry.edit_url().empty() &&
-                     !session_.registry.entries().empty()) {
-                session_.registry.select_adjacent_entry(-1);
-                registry_.edit_selected();
-            } else if (key.code == KEY_RIGHT && !session_.registry.edit_url().empty() &&
-                       !session_.registry.entries().empty()) {
-                session_.registry.select_adjacent_entry(1);
-                registry_.edit_selected();
+                // Land at the end, where the next character will be typed.
+                session_.registry.move_caret(1000);
+            } else if (fn && (key.code == KEY_Z || key.code == KEY_LEFT)) {
+                session_.registry.move_caret(-1);
+            } else if (fn && (key.code == KEY_C || key.code == KEY_RIGHT)) {
+                session_.registry.move_caret(1);
+            } else if (!fn && key.ch >= 32 && key.ch <= 126) {
+                session_.registry.insert_at_caret(key.ch, limit);
             }
             break;
         }

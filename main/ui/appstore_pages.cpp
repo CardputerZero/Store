@@ -403,17 +403,60 @@ void scrolling_status_label(lv_obj_t *root, const std::string &text, int x, int 
     lv_obj_set_style_anim_duration(obj, 4000, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
-void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
-                  bool selected, bool focused)
+// A grouped settings card. The focused one is outlined in system blue.
+lv_obj_t *settings_group(lv_obj_t *root, int y, int height, bool focused)
 {
-    const uint32_t border = focused ? 0xCCCC33 : (selected ? 0x58A6FF : 0x6E7681);
-    const uint32_t text_color = selected ? 0xFFFFFF : 0x8B949E;
-    box(root, x, y + 2, 10, 10, 0x0D1117, border, 1, 5);
-    if (selected)
-        box(root, x + 3, y + 5, 4, 4, focused ? 0xCCCC33 : 0x58A6FF,
-            focused ? 0xCCCC33 : 0x58A6FF, 0, 2);
-    label(root, text, x + 15, y, text == "Default" ? 72 : 44, 18, store_font(text, 12), text_color,
-          LV_LABEL_LONG_DOT);
+    return box(root, 12, y, 296, height, 0x1C1C1E, focused ? kSystemBlue : 0x2C2C2E, 1, 12);
+}
+
+// A small chevron, drawn rather than taken from a font so it stays crisp.
+void chevron(lv_obj_t *root, int x, int middle, bool left, uint32_t color)
+{
+    constexpr int arm = 5;
+    for (int row = 0; row < arm; ++row) {
+        const int inset = left ? arm - 1 - row : row;
+        box(root, x + inset, middle - arm + row, 2, 2, color, color, 0);
+        box(root, x + inset, middle + arm - 2 - row, 2, 2, color, color, 0);
+    }
+}
+
+// Shows the slice of a field that holds the caret, with the caret drawn in it.
+void editor_field(lv_obj_t *root, const std::string &value, size_t caret, int x, int y,
+                  int width, bool blink)
+{
+    const lv_font_t *font = store_font(value, 13);
+    lv_obj_t *viewport = lv_obj_create(root);
+    lv_obj_remove_style_all(viewport);
+    lv_obj_set_pos(viewport, x, y);
+    lv_obj_set_size(viewport, width, font->line_height);
+    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+
+    const std::string before = value.substr(0, std::min(caret, value.size()));
+    const int caret_x = text_width(before, font);
+    // Keep the caret a few pixels inside the field, scrolling the text to do it.
+    constexpr int margin = 8;
+    int scroll = 0;
+    if (caret_x > width - margin) scroll = caret_x - (width - margin);
+    const int text_width_px = text_width(value, font);
+    if (scroll > 0 && text_width_px - scroll < width - margin)
+        scroll = std::max(0, text_width_px - (width - margin));
+
+    if (!value.empty())
+        label(viewport, value, -scroll, 0, LV_SIZE_CONTENT, font->line_height, font, 0xFFFFFF);
+    lv_obj_t *caret_bar = box(viewport, caret_x - scroll, 1, 1, font->line_height - 2, kSystemBlue,
+                              kSystemBlue, 0);
+    if (!blink) return;
+    lv_anim_t blink_anim;
+    lv_anim_init(&blink_anim);
+    lv_anim_set_var(&blink_anim, caret_bar);
+    lv_anim_set_values(&blink_anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_duration(&blink_anim, 530);
+    lv_anim_set_playback_duration(&blink_anim, 530);
+    lv_anim_set_repeat_count(&blink_anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&blink_anim, [](void *obj, int32_t value) {
+        lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(obj), static_cast<lv_opa_t>(value), 0);
+    });
+    lv_anim_start(&blink_anim);
 }
 
 } // namespace
@@ -994,48 +1037,76 @@ void StoreSettingsPage::render(const PageRenderContext &context,
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, "Registry Settings", 8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
-    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
+
+    const lv_font_t *title_font = store_font("Settings", 17, true);
+    center_strong_label(root, "Settings", 12, 26 - glyph_top(title_font, 'S'), 296,
+                        title_font->line_height, title_font, 0xFFFFFF);
+
+    // Region is a segmented control: the chosen segment is filled blue.
+    constexpr int region_y = 48, region_height = 30;
     const bool region_focused = model.focus == 0;
-    label(root, "Region", 24, 46, 48, 18, store_font("", 12),
-          region_focused ? 0xCCCC33 : 0x58A6FF);
-    radio_option(root, 76, 46, "Auto", model.region_code == "auto", region_focused);
-    radio_option(root, 142, 46, "Default", model.region_code == "default", region_focused);
-    radio_option(root, 234, 46, "CN", model.region_code == "CN", region_focused);
+    settings_group(root, region_y, region_height, region_focused);
+    const char *const regions[] = {"Auto", "Default", "CN"};
+    const char *const codes[] = {"auto", "default", "CN"};
+    constexpr int segment_width = 98;
+    for (int i = 0; i < 3; ++i) {
+        const bool selected = model.region_code == codes[i];
+        const int x = 13 + i * segment_width;
+        if (selected)
+            box(root, x, region_y + 1, segment_width - 2, region_height - 2, kSystemBlue,
+                kSystemBlue, 0, 11);
+        const lv_font_t *font = store_font(regions[i], 13);
+        const int text_y = region_y + region_height / 2 - glyph_middle(font, 'A');
+        if (selected)
+            center_strong_label(root, regions[i], x, text_y, segment_width - 2,
+                                font->line_height, font, 0xFFFFFF);
+        else
+            center_label(root, regions[i], x, text_y, segment_width - 2, font->line_height,
+                         font, kSecondaryText);
+    }
+
+    constexpr int source_y = 84, source_height = 46;
+    settings_group(root, source_y, source_height, model.focus == 1 && model.has_entry);
     if (!model.has_entry) {
-        label(root, model.loading ? "Loading registries..." : "No registries configured.",
-              24, 82, 272, 36, store_font("", 12), 0xB8B8B8, LV_LABEL_LONG_WRAP);
+        const std::string message =
+            model.loading ? "Loading registries\u2026" : "No registries configured";
+        const lv_font_t *font = store_font(message, 13);
+        center_label(root, message, 24, source_y + (source_height - font->line_height) / 2, 272,
+                     font->line_height, font, kSecondaryText, LV_LABEL_LONG_DOT);
     } else {
         const auto &entry = model.entry;
         const std::string source = model.region_code == "auto"
-            ? "Source (" + model.active_region + ")" : "Source";
-        label(root, source, 24, 68, 210, 18, store_font(source, 12),
-              model.focus == 1 ? 0xCCCC33 : 0x58A6FF, LV_LABEL_LONG_DOT);
-        center_label(root, std::to_string(model.selected_index + 1) + "/" +
-                     std::to_string(model.entry_count), 248, 68, 48, 18,
-                     store_font("", 12), 0x8B949E, LV_LABEL_LONG_DOT);
-        const uint32_t nav = model.focus == 1 ? 0xFF6A3D : 0x6E7681;
-        label(root, "<", 6, 85, 16, 22, store_font("", 20), nav);
-        label(root, ">", 302, 85, 16, 22, store_font("", 20), nav);
-        marquee_label(root, entry.name, 24, 86, 194, 20, store_font(entry.name, 14),
-                      0xFFFFFF, source_marquee_, entry.url + entry.name);
-        lv_obj_t *count = label(root, entry.count + " apps", 224, 87, 72, 18,
-                               store_font("", 12), 0xCCCC33, LV_LABEL_LONG_DOT);
+            ? "Source \xC2\xB7 " + model.active_region : "Source";
+        const lv_font_t *caption_font = store_font(source, 11);
+        label(root, source, 24, source_y + 6, 180, caption_font->line_height, caption_font,
+              kSecondaryText, LV_LABEL_LONG_DOT);
+        const std::string summary = entry.count + " apps \xC2\xB7 " +
+                                    std::to_string(model.selected_index + 1) + " of " +
+                                    std::to_string(model.entry_count);
+        lv_obj_t *count = label(root, summary, 150, source_y + 6, 146, caption_font->line_height,
+                                caption_font, kSecondaryText, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
-        label(root, "URL", 24, 111, 32, 18, store_font("", 12), 0x58A6FF);
-        box(root, 60, 108, 236, 24, 0x111923, 0x2A3A46, 1, 2);
-        const std::string url = entry.builtin ? model.registry_url : entry.url;
-        marquee_label(root, url, 66, 112, 224, 18, store_font(url, 12), 0xFFFFFF,
-                      url_marquee_, url);
+
+        const lv_font_t *name_font = store_font(entry.name, 14);
+        // Chevrons bracket the name, so left/right reads as a choice.
+        constexpr int name_x = 40, name_right = 280;
+        const int name_middle = source_y + 21 + name_font->line_height / 2;
+        const uint32_t arrow = model.focus == 1 ? kSystemBlue : 0x636366;
+        chevron(root, 24, name_middle, true, arrow);
+        chevron(root, name_right, name_middle, false, arrow);
+        marquee_label(root, entry.name, name_x, source_y + 21, name_right - name_x,
+                      name_font->line_height, name_font, 0xFFFFFF, source_marquee_,
+                      entry.url + entry.name, LV_TEXT_ALIGN_CENTER);
     }
+
     if (!model.status.empty()) {
-        // Keep the full status readable without taking space from the action row.
-        lv_obj_t *status = label(root, model.status, 10, 134, 300, 17,
-                                store_font(model.status, 12),
-                                model.status_is_error ? 0xF85149 : 0xCCCC33,
-                                LV_LABEL_LONG_SCROLL_CIRCULAR);
+        // Above the bookmark tabs, so a long status can scroll without covering them.
+        lv_obj_t *status = label(root, model.status, 16, 134, 288, 14,
+                                 store_font(model.status, 11),
+                                 model.status_is_error ? 0xFF453A : kSecondaryText,
+                                 LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_anim_duration(status, 8000, LV_PART_MAIN | LV_STATE_DEFAULT);
     }
 }
@@ -1046,29 +1117,44 @@ void StoreSettingsPage::render_editor(const PageRenderContext &context,
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, model.editing ? "Edit Registry" : "Add Registry",
-          8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
-    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
 
-    label(root, "Name", 10, 46, 50, 18, store_font("", 12),
-          model.focus == 0 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 65, 300, 24, 0x111923,
-        model.focus == 0 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, model.name, 16, 68, 288, 18,
-          store_font(model.name, 12), 0xE6EDF3, LV_LABEL_LONG_DOT);
+    const std::string title = model.editing ? "Edit Registry" : "Add Registry";
+    const lv_font_t *title_font = store_font(title, 17, true);
+    center_strong_label(root, title, 12, 26 - glyph_top(title_font, 'E'), 296,
+                        title_font->line_height, title_font, 0xFFFFFF);
 
-    label(root, "URL", 10, 92, 50, 18, store_font("", 12),
-          model.focus == 1 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 110, 300, 35, 0x111923,
-        model.focus == 1 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, model.url, 16, 113, 288, 28, store_font(model.url, 12),
-          0xE6EDF3, LV_LABEL_LONG_WRAP);
-
-    center_label(root, "Tab Next   BS Delete   Enter Save",
-                 10, 152, 300, 18, store_font("", 12), 0xCCCC33,
-                 LV_LABEL_LONG_DOT);
+    const char *const captions[] = {"Name", "URL"};
+    const std::string values[] = {model.name, model.url};
+    // The second field stops above the bookmark tabs.
+    constexpr int row_y[] = {48, 92};
+    for (int i = 0; i < 2; ++i) {
+        constexpr int height = 40;
+        const bool focused = model.editing_field && model.focus == i;
+        settings_group(root, row_y[i], height, focused);
+        const lv_font_t *caption_font = store_font(captions[i], 11);
+        label(root, captions[i], 24, row_y[i] + 4, 272, caption_font->line_height, caption_font,
+              focused ? kSystemBlue : kSecondaryText);
+        if (!model.editing_field) {
+            const lv_font_t *font = store_font(values[i], 13);
+            label(root, values[i], 24, row_y[i] + 19, 272, font->line_height, font, 0xFFFFFF,
+                  LV_LABEL_LONG_DOT);
+        } else if (!focused && values[i].empty()) {
+            const lv_font_t *font = store_font("Required", 13);
+            label(root, "Required", 24, row_y[i] + 19, 272, font->line_height, font, 0x636366);
+        } else {
+            // The caret keeps the typed end in view, scrolling the field with it.
+            editor_field(root, values[i], focused ? model.caret : values[i].size(), 24,
+                         row_y[i] + 19, 272, focused);
+        }
+    }
+    if (!model.status.empty()) {
+        lv_obj_t *status = label(root, model.status, 16, 136, 240, 14,
+                                 store_font(model.status, 11),
+                                 model.status_is_error ? 0xFF453A : kSecondaryText,
+                                 LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+    }
 }
 
 } // namespace appstore_ui
