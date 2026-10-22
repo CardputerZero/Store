@@ -151,6 +151,7 @@ bar and bottom actions stay fixed, and status messages appear just above the
 actions at any scroll position. Descriptions wrap without a height limit or
 automatic scrolling. Apps without screenshots have no screenshot area. Detail actions are `4` back,
 `6` install/reinstall, `7` update, and `8` remove, shown when applicable.
+After a successful removal the Store returns to the home list.
 The existing full-screen screenshot viewer remains accessible through `5`, where
 `Z/C` cycles images. On the details page itself those keys page through the
 content.

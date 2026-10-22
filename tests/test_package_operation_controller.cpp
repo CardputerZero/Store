@@ -129,6 +129,7 @@ int main()
     controller.finish("PACKAGE_RESULT\tUNINSTALLED\tdemo\tDemo\t\n", 0);
     assert(!session.catalog.apps()[0].installed);
     assert(session.status.value() == "Deleted");
+    assert(session.screen == Screen::Home);
 
     service.state().begin("upgrade", "demo", "Demo", 400);
     controller.finish("ERROR\tbroken\n", 1);

@@ -169,7 +169,10 @@ void PackageOperationController::finish(const std::string &output, int result_co
     job_.reset();
     if (!dependencies_.exit_requested || !dependencies_.exit_requested()) {
         if (dependencies_.request_summary) dependencies_.request_summary();
-        session_.screen = ok ? Screen::Detail : Screen::ErrorDialog;
+        const bool removed = action == "uninstall" ||
+            output.find("UNINSTALLED") != std::string::npos;
+        session_.screen = !ok ? Screen::ErrorDialog :
+            (removed ? Screen::Home : Screen::Detail);
     }
 }
 
