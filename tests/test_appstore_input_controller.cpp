@@ -60,8 +60,8 @@ int main()
            KBD_INPUT_CONTEXT_NAVIGATION);
     assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Search) ==
            KBD_INPUT_CONTEXT_TEXT);
-    assert(appstore_ui::appstore_input_context(appstore_ui::Screen::RegistryEdit) ==
-           KBD_INPUT_CONTEXT_TEXT);
+    assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Registry) ==
+           KBD_INPUT_CONTEXT_NAVIGATION);
     assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Detail) ==
            KBD_INPUT_CONTEXT_NAVIGATION);
     using namespace appstore_ui;
@@ -105,7 +105,6 @@ int main()
     int backs = 0;
     int repairs = 0;
     int registry_opens = 0;
-    int registry_adds = 0;
     int confirmations = 0;
     int page_moves = 0;
     bool page_drawn = true;
@@ -118,7 +117,6 @@ int main()
              session.screen = session.sync.startup_active ? Screen::StartupSync : Screen::Home;
          },
          [&]() { ++registry_opens; session.screen = Screen::Registry; },
-         [&]() { ++registry_adds; session.screen = Screen::RegistryEdit; },
          [&]() { ++confirmations; }, [&]() { ++repairs; }, [&]() { ++renders; },
          [&]() { ++page_moves; return page_drawn; },
          [&](KeySound sound) { sounds.push_back(sound); }});
@@ -184,75 +182,28 @@ int main()
     input.handle({KEY_ENTER}, 154);
     assert(confirmations == 1);
 
-    session.screen = Screen::RegistryEdit;
-    session.registry.edit_focus() = 0;
-    session.registry.name_input().clear();
-    input.handle({0, 0, 'X'}, 160);
-    assert(session.registry.name_input() == "X");
-    input.handle({KEY_TAB}, 161);
-    assert(session.registry.edit_focus() == 1);
-    const std::string url_before_x = session.registry.input_url();
-    input.handle({KEY_X, 0, 'x'}, 162);
-    assert(session.registry.edit_focus() == 1);
-    assert(session.registry.input_url() == url_before_x + "x");
-    // Fn+Z/C moves the cursor; typing and Backspace happen at the cursor.
-    input.handle({KEY_Z, KBD_MOD_FN, 'z'}, 163);
-    input.handle({KEY_Y, 0, 'y'}, 164);
-    assert(session.registry.input_url() == url_before_x + "yx");
-    input.handle({KEY_C, KBD_MOD_FN, 'c'}, 165);
-    input.handle({KEY_BACKSPACE}, 166);
-    assert(session.registry.input_url() == url_before_x + "y");
-    // While a field is open, 8 types. Enter steps Name, then URL, then confirms.
-    input.handle({KEY_8, 0, '8'}, 167);
-    assert(session.registry.input_url() == url_before_x + "y8");
-    assert(session.registry.editing_field());
-    session.registry.edit_focus() = 0;
-    input.handle({KEY_ENTER}, 168);
-    assert(session.registry.editing_field() && session.registry.edit_focus() == 1);
-    input.handle({KEY_ENTER}, 168);
-    assert(!session.registry.editing_field());
-    input.handle({KEY_ENTER}, 168);
-    assert(session.registry.editing_field() && session.registry.edit_focus() == 0);
-    session.registry.name_input().clear();
-    input.handle({KEY_ENTER}, 168);
-    input.handle({KEY_ENTER}, 168);
-    input.handle({KEY_8, 0, '8'}, 169);
-    assert(session.screen == Screen::RegistryEdit);
-    assert(session.status.value() == "Name required");
-    assert(session.registry.input_url() == url_before_x + "y8");
-
-    appstore::RegistryData registry_data;
-    registry_data.entries.push_back(
-        {"https://example.invalid/registry.json", "Example", "ok", "1",
-         "now", "", "global", true, false});
-    session.registry.apply(registry_data);
     session.screen = Screen::Registry;
-    input.handle({KEY_5}, 170);
-    assert(session.screen == Screen::RegistryEdit);
-    assert(session.registry.name_input() == "Example");
-    session.screen = Screen::Registry;
+    session.status.value().clear();
+    for (const auto code : {KEY_A, KEY_E, KEY_D, KEY_T, KEY_5, KEY_6, KEY_7, KEY_ENTER})
+        input.handle({static_cast<uint32_t>(code)}, 170);
+    assert(session.screen == Screen::Registry && session.status.value().empty());
+    input.handle({KEY_DOWN}, 171);
+    input.handle({KEY_RIGHT}, 172);
+    assert(session.registry.region_code() == "default");
+    input.handle({KEY_C, 0, 'c'}, 173);
+    assert(session.registry.region_code() == "CN");
+    input.handle({KEY_Z, 0, 'z'}, 174);
+    assert(session.registry.region_code() == "default");
+    input.handle({KEY_8}, 175);
+    assert(!sync.running());
+    const int backs_before_settings = backs;
     input.handle({KEY_4}, 180);
-    assert(session.screen == Screen::RegistryEdit && registry_adds == 1);
+    assert(session.screen == Screen::Home && backs == backs_before_settings + 1);
     session.screen = Screen::Registry;
-    input.handle({KEY_A, 0, 'a'}, 181);
-    assert(session.screen == Screen::RegistryEdit && registry_adds == 2);
-    session.screen = Screen::Registry;
+    input.handle({KEY_B, 0, 'b'}, 181);
+    assert(session.screen == Screen::Home && backs == backs_before_settings + 2);
+    backs = backs_before_settings;
     session.status.value().clear();
-    input.handle({KEY_6}, 182);
-    input.handle({KEY_T, 0, 't'}, 183);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
-
-    appstore::RegistryData builtin_registry_data;
-    builtin_registry_data.entries.push_back(
-        {"https://example.invalid/builtin.json", "Built in", "ok", "1",
-         "now", "", "global", true, true});
-    session.registry.apply(builtin_registry_data);
-    session.status.value().clear();
-    session.screen = Screen::Registry;
-    input.handle({KEY_5}, 184);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
-    input.handle({KEY_7}, 185);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
 
     session.screen = Screen::Detail;
     const std::string detail_id = session.catalog.selected_app()->id;

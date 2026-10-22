@@ -32,7 +32,6 @@ public:
                        PackageJobState &package_job, Dependencies dependencies);
 
     void open();
-    void open_add();
     void request_refresh();
     bool poll_refresh();
     bool poll_operation();
@@ -44,16 +43,10 @@ public:
     std::string adjacent_region(int delta) const;
     bool poll_region_debounce(uint32_t now, uint32_t delay_ms);
 
-    void submit_editor();
-    void toggle_selected();
-    void delete_selected();
-    void edit_selected();
-
 private:
     bool refresh_running();
     bool start_operation(const RegistryOpRequest &request, const std::string &status);
     void apply_region_output(const std::string &output);
-    static std::string count_message(const std::string &output, bool editing);
 
     AppStoreSessionState &session_;
     AppStoreTaskService &tasks_;

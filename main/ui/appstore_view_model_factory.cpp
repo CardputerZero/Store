@@ -122,7 +122,6 @@ CatalogDisplayViewModel AppStoreViewModelFactory::catalog(
         model.author = single_line(app->author.empty() ? "-" : app->author);
         model.size = human_size(app->size);
         model.updated = app->updated_at.empty() ? "-" : app->updated_at.substr(0, 10);
-        model.permissions = app->permissions;
     }
     return model;
 }
@@ -203,7 +202,7 @@ InitializationProgressViewModel AppStoreViewModelFactory::initialization() const
     model.error_message =
         sentence(session_.error.message.empty() ? "No registry could be reached" : session_.error.message) +
         " " + sentence(session_.error.detail.empty()
-                           ? "Check Wi\u2011Fi or change registries in Settings" : session_.error.detail);
+                           ? "Check Wi\u2011Fi or change server in Settings" : session_.error.detail);
     return model;
 }
 
@@ -213,33 +212,17 @@ StoreSettingsViewModel AppStoreViewModelFactory::settings(bool operation_running
     model.region_code = session_.registry.region_code();
     model.active_region = session_.registry.active_region();
     model.registry_url = session_.registry.registry_url();
-    model.focus = session_.registry.page_focus();
     model.loading = session_.registry_loading;
-    model.selected_index = session_.registry.selected_index();
-    model.entry_count = static_cast<int>(session_.registry.entries().size());
-    model.has_entry = session_.registry.selected_entry() != nullptr;
-    if (model.has_entry) model.entry = *session_.registry.selected_entry();
     model.operation_running = operation_running;
     model.region_commit_pending = session_.registry.region_commit_pending();
     if (model.region_commit_pending) {
         model.status = "Region update pending...";
     } else if (model.operation_running) {
         model.status = "Registry operation running...";
-    } else if (model.has_entry && !model.entry.error.empty()) {
-        model.status = single_line(model.entry.error);
+    } else if (!session_.registry.error().empty()) {
+        model.status = single_line(session_.registry.error());
         model.status_is_error = true;
     }
-    return model;
-}
-
-RegistryEditorViewModel AppStoreViewModelFactory::registry_editor() const
-{
-    RegistryEditorViewModel model{!session_.registry.edit_url().empty(),
-                                  session_.registry.name_input(), session_.registry.input_url(),
-                                  session_.registry.edit_focus(), session_.registry.caret(),
-                                  session_.registry.editing_field(), {}, false};
-    model.status = session_.status.value();
-    model.status_is_error = !model.status.empty();
     return model;
 }
 

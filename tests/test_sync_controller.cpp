@@ -107,7 +107,7 @@ int main()
     assert(session.sync.status.percent == -1);
     assert(session.status.value() == "Catalog synced");
     assert(summaries == 1 && last_summary_purpose == SummaryPurpose::StartupCatalog &&
-           registry_refreshes == 0);
+           registry_refreshes == 1);
 
     session.sync.startup_active = false;
     session.screen = Screen::Home;
@@ -115,7 +115,7 @@ int main()
     controller.start(true, 500);
     wait_for(2);
     controller.poll(600, 200);
-    assert(summaries == 2 && registry_refreshes == 1);
+    assert(summaries == 2 && registry_refreshes == 2);
 
     controller.initialize_startup("https://registry.example");
     controller.start(false, 700);
@@ -148,6 +148,7 @@ int main()
     assert(session.error.message == "Wi-Fi unavailable" && session.error.detail.empty());
     assert(summaries == 2);
 
+    assert(registry_refreshes == 5);
     assert(controller.cancel() && cancels == 1);
     std::cout << "sync controller tests passed\n";
 }

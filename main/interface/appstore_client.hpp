@@ -44,7 +44,7 @@ struct StoreApp {
     uint32_t permissions = 0;
 };
 
-// Order matches the selection screen icon row.
+// Order matches the app detail permission icon row.
 enum AppPermission : uint32_t {
     kPermissionNetwork = 1u << 0,
     kPermissionMicrophone = 1u << 1,

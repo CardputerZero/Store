@@ -110,7 +110,7 @@ void SyncController::continue_after_startup_failure(const std::string &detail)
     session_.screen = Screen::StartupSync;
 }
 
-void SyncController::apply_output(const std::string &output, bool refresh_registries_after)
+void SyncController::apply_output(const std::string &output)
 {
     const std::string message = sync_status_message(output);
     if (!message.empty()) session_.status.value() = one_line(message, 54);
@@ -120,8 +120,6 @@ void SyncController::apply_output(const std::string &output, bool refresh_regist
     if (dependencies_.request_summary)
         dependencies_.request_summary(session_.sync.startup_active
             ? SummaryPurpose::StartupCatalog : SummaryPurpose::Regular);
-    if (refresh_registries_after && dependencies_.request_registry_refresh)
-        dependencies_.request_registry_refresh();
 }
 
 void SyncController::poll(uint32_t now, uint32_t animation_interval_ms)
@@ -150,6 +148,8 @@ void SyncController::poll(uint32_t now, uint32_t animation_interval_ms)
         return;
     }
     if (!done) return;
+    // Auto may switch mirrors even during startup or a failed sync.
+    if (dependencies_.request_registry_refresh) dependencies_.request_registry_refresh();
     session_.sync.animation_phase = -1;
     if (session_.sync.startup_active) {
         std::string error;
@@ -168,9 +168,9 @@ void SyncController::poll(uint32_t now, uint32_t animation_interval_ms)
         session_.sync.status.percent = -1;
         session_.sync.status.phase = "catalog";
         session_.sync.status.detail = "Preparing app catalog...";
-        apply_output(output, request.refresh_registries_after);
+        apply_output(output);
     } else {
-        apply_output(output, request.refresh_registries_after);
+        apply_output(output);
     }
     if (dependencies_.render) dependencies_.render();
 }

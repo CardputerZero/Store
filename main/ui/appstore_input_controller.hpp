@@ -24,8 +24,7 @@ namespace appstore_ui {
 
 constexpr cp0_keyboard_input_context_t appstore_input_context(Screen screen)
 {
-    return screen == Screen::Search || screen == Screen::ShareCode ||
-                   screen == Screen::RegistryEdit
+    return screen == Screen::Search || screen == Screen::ShareCode
                ? KBD_INPUT_CONTEXT_TEXT
                : KBD_INPUT_CONTEXT_NAVIGATION;
 }
@@ -51,7 +50,6 @@ public:
         std::function<void()> request_quit;
         std::function<void()> navigate_back;
         std::function<void()> open_registry;
-        std::function<void()> open_registry_add;
         std::function<void()> execute_confirmation;
         std::function<void()> repair_package;
         std::function<void()> render;

@@ -6,7 +6,6 @@
 
 #include "appstore_image_renderer.hpp"
 
-#include "appstore_pages.hpp"
 #include "appstore_paths.hpp"
 #include "cp0_lvgl_app.h"
 
@@ -52,8 +51,7 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
     const std::string path = icon_file_path(app_dir, app);
     if (path.empty()) return false;
-    constexpr int x = catalog_home::kIconX, y = catalog_home::kIconY;
-    constexpr int width = catalog_home::kIconSize, height = catalog_home::kIconSize;
+    constexpr int x = 39, y = 65, width = 60, height = 60;
     lv_obj_t *clip = lv_obj_create(root);
     lv_obj_remove_style_all(clip);
     lv_obj_set_pos(clip, x, y);
@@ -61,7 +59,7 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
     lv_obj_clear_flag(clip, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(clip, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(clip, 0, 0);
-    lv_obj_set_style_radius(clip, width / 6, 0);
+    lv_obj_set_style_radius(clip, 10, 0);
     lv_obj_set_style_clip_corner(clip, true, 0);
     lv_obj_set_style_pad_all(clip, 0, 0);
     lv_obj_t *icon = lv_image_create(clip);

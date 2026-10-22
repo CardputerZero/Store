@@ -29,14 +29,6 @@ void RegistryController::open()
     request_refresh();
 }
 
-void RegistryController::open_add()
-{
-    if (!operation_available()) return;
-    session_.registry.begin_add();
-    session_.status.value().clear();
-    session_.screen = Screen::RegistryEdit;
-}
-
 void RegistryController::request_refresh()
 {
     if (dependencies_.exit_requested && dependencies_.exit_requested()) return;
@@ -56,8 +48,12 @@ bool RegistryController::poll_refresh()
     std::optional<RegistryRefreshRequest> deferred;
     if (!tasks_.take_registry_refresh(request, registries, &deferred)) return false;
     session_.registry_loading = false;
+    if (deferred) {
+        request_refresh();
+        return true;
+    }
     session_.registry.apply(registries);
-    if (deferred) request_refresh();
+    if (dependencies_.save_config) dependencies_.save_config();
     return true;
 }
 
@@ -129,21 +125,6 @@ void RegistryController::apply_region_output(const std::string &output)
     }
 }
 
-std::string RegistryController::count_message(const std::string &output, bool editing)
-{
-    std::istringstream stream(output);
-    std::string line;
-    while (std::getline(stream, line)) {
-        const auto fields = split_tab(line);
-        if (fields.size() < 5 || fields[0] != "REGISTRY") continue;
-        const std::string count = fields[1] == "UPDATED" && fields.size() >= 6
-            ? fields[5] : fields[4];
-        return (editing ? "Registry updated" : "Registry added") +
-            (count.empty() ? std::string() : " (" + count + " apps)");
-    }
-    return editing ? "Registry updated" : "Registry added";
-}
-
 bool RegistryController::poll_operation()
 {
     RegistryOpRequest request;
@@ -152,43 +133,15 @@ bool RegistryController::poll_operation()
     const bool ok = result.rc == 0 && result.output.find("ERROR") == std::string::npos;
     if (!ok) {
         session_.status.value() = one_line(backend_error_message(result.output), 54);
+        request_refresh();
         return true;
     }
+    apply_region_output(result.output);
     if (dependencies_.save_config) dependencies_.save_config();
-
-    switch (request.kind) {
-        case RegistryOpKind::SetRegion:
-            apply_region_output(result.output);
-            session_.status.value() = "Region: " + session_.registry.region_label();
-            request_refresh();
-            if (dependencies_.request_summary) dependencies_.request_summary();
-            if (dependencies_.sync_catalog) dependencies_.sync_catalog(true);
-            break;
-        case RegistryOpKind::AddRegistry:
-        case RegistryOpKind::EditRegistry:
-            session_.status.value() = count_message(
-                result.output, request.kind == RegistryOpKind::EditRegistry);
-            session_.registry.finish_edit();
-            session_.screen = Screen::Registry;
-            request_refresh();
-            if (dependencies_.sync_catalog) dependencies_.sync_catalog(true);
-            break;
-        case RegistryOpKind::ToggleRegistry:
-            session_.status.value() = request.enable ? "Registry enabled" : "Registry disabled";
-            request_refresh();
-            if (dependencies_.request_summary) dependencies_.request_summary();
-            if (request.enable && dependencies_.sync_catalog) dependencies_.sync_catalog(true);
-            break;
-        case RegistryOpKind::DeleteRegistry:
-            session_.status.value() = "Registry deleted";
-            session_.registry.finish_edit();
-            request_refresh();
-            if (dependencies_.request_summary) dependencies_.request_summary();
-            break;
-        case RegistryOpKind::None:
-            session_.status.value() = "Registry updated";
-            request_refresh();
-            break;
+    session_.status.value() = "Region: " + session_.registry.region_label();
+    if (!session_.registry.region_commit_pending()) {
+        if (dependencies_.request_summary) dependencies_.request_summary();
+        if (dependencies_.sync_catalog) dependencies_.sync_catalog(true);
     }
     return true;
 }
@@ -217,72 +170,6 @@ bool RegistryController::poll_region_debounce(uint32_t now, uint32_t delay_ms)
     request.region = *region;
     start_operation(request, "Changing region...");
     return true;
-}
-
-void RegistryController::submit_editor()
-{
-    if (session_.registry.name_input().empty() || session_.registry.input_url().empty()) {
-        session_.status.value() = session_.registry.name_input().empty() ? "Name required"
-                                                                        : "URL required";
-        // Leave the missing field open, so the rejection is visible and editable.
-        session_.registry.edit_focus() = session_.registry.name_input().empty() ? 0 : 1;
-        session_.registry.move_caret(1000);
-        session_.registry.set_editing_field(true);
-        return;
-    }
-    if (!operation_available()) {
-        session_.registry.set_editing_field(true);
-        return;
-    }
-    RegistryOpRequest request;
-    request.kind = session_.registry.edit_url().empty()
-        ? RegistryOpKind::AddRegistry : RegistryOpKind::EditRegistry;
-    request.old_url = session_.registry.edit_url();
-    request.url = session_.registry.input_url();
-    request.name = session_.registry.name_input();
-    start_operation(request, request.kind == RegistryOpKind::EditRegistry
-        ? "Updating registry..." : "Adding registry...");
-}
-
-void RegistryController::toggle_selected()
-{
-    if (!operation_available()) return;
-    RegistryEntry *entry = session_.registry.selected_entry();
-    if (!entry) return;
-    RegistryOpRequest request;
-    request.kind = RegistryOpKind::ToggleRegistry;
-    request.url = entry->url;
-    request.enable = !entry->enabled;
-    start_operation(request, entry->enabled ? "Disabling registry..." : "Enabling registry...");
-}
-
-void RegistryController::delete_selected()
-{
-    if (!operation_available()) return;
-    RegistryEntry *entry = session_.registry.selected_entry();
-    if (!entry) return;
-    if (entry->builtin) {
-        session_.status.value() = "Use region setting";
-        return;
-    }
-    RegistryOpRequest request;
-    request.kind = RegistryOpKind::DeleteRegistry;
-    request.url = entry->url;
-    start_operation(request, "Deleting registry...");
-}
-
-void RegistryController::edit_selected()
-{
-    if (!operation_available()) return;
-    RegistryEntry *entry = session_.registry.selected_entry();
-    if (!entry) return;
-    if (entry->builtin) {
-        session_.status.value() = "Use region setting";
-        return;
-    }
-    session_.registry.begin_edit_selected();
-    session_.status.value().clear();
-    session_.screen = Screen::RegistryEdit;
 }
 
 } // namespace appstore_ui

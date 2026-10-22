@@ -82,9 +82,11 @@ int main()
     assert(detail.title == "A very long application name that must stay intact  2.0");
     assert(detail.version == "2.0" && detail.author == "-");
 
+    assert(detail.app.permissions == 0);
     app.permissions = appstore::kPermissionNetwork | appstore::kPermissionCamera;
+    detail = factory.detail(&app, 100, 6000);
+    assert(detail.app.permissions == (appstore::kPermissionNetwork | appstore::kPermissionCamera));
     catalog = factory.catalog(100, 6000);
-    assert(catalog.permissions == (appstore::kPermissionNetwork | appstore::kPermissionCamera));
     assert(catalog.version == "2.0");
     assert(catalog.size == "19.6 MB");
     assert(catalog.updated == "2026-07-23");
@@ -143,16 +145,19 @@ int main()
     initialization = factory.initialization();
     assert(initialization.failed && initialization.error_title == "Cannot Connect to Store");
     assert(initialization.error_message ==
-           "Wi-Fi unavailable. Check Wi\u2011Fi or change registries in Settings.");
+           "Wi-Fi unavailable. Check Wi\u2011Fi or change server in Settings.");
     session.sync.startup_failed = false;
     session.error.clear();
 
-    session.registry.entries().push_back(
-        {"https://example.test/registry.json", "Example", "ok", "1", "now", "", "global", true, false});
+    appstore::RegistryData registry_data;
+    registry_data.region = {"auto", "Auto", "", "CN"};
+    registry_data.entries.push_back(
+        {appstore::SharedRegistryStore::kChinaRegistryUrl, "CardputerZero Hub", "ok", "1",
+         "now", "Registry offline; using cached catalog", "CN", true, true});
+    session.registry.apply(registry_data);
     auto settings = factory.settings(false);
-    assert(settings.has_entry && settings.entry.name == "Example");
-    session.registry.entries()[0].error = "Registry offline; using cached catalog";
-    settings = factory.settings(false);
+    assert(settings.active_region == "CN" && settings.region_code == "auto");
+    assert(settings.registry_url == appstore::SharedRegistryStore::kChinaRegistryUrl);
     assert(settings.status == "Registry offline; using cached catalog");
     assert(settings.status_is_error);
     assert(session.registry.schedule_region("CN", 100));

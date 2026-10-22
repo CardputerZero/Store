@@ -42,7 +42,7 @@ int main()
             *rc = 0;
             if (!args.empty() && args[0] == "--set-region")
                 return std::string("REGION\tCN\tChina\thttps://cn.example/registry.json\tCN\n");
-            return std::string("REGISTRY\tADDED\thttps://extra.example\tExtra\t7\n");
+            return std::string{};
         });
     AppStoreSessionState session;
     PackageJobState package_job;
@@ -75,10 +75,8 @@ int main()
     assert(session.screen == Screen::Registry && session.registry_loading);
     wait_for(1);
     assert(controller.poll_refresh());
-    assert(!session.registry_loading && session.registry.entries().size() == 1);
-
-    controller.delete_selected();
-    assert(session.status.value() == "Use region setting");
+    assert(!session.registry_loading);
+    assert(session.registry.active_region() == "default" && saved == 1);
 
     controller.select_region("CN", 100);
     assert(session.registry.region_code() == "CN");
@@ -89,21 +87,16 @@ int main()
     wait_for(2);
     assert(controller.poll_operation());
     assert(session.registry.region_label() == "China");
-    assert(saved == 1 && summaries == 1 && syncs == 1 && backend_calls == 1);
+    assert(saved == 2 && summaries == 1 && syncs == 1 && backend_calls == 1);
+    assert(session.registry.registry_url() == appstore::SharedRegistryStore::kChinaRegistryUrl);
+
+    controller.request_refresh();
     wait_for(3);
     assert(controller.poll_refresh());
-
-    controller.open_add();
-    session.registry.name_input() = "Extra";
-    session.registry.input_url() = "https://extra.example/registry.json";
-    controller.submit_editor();
-    wait_for(4);
-    assert(controller.poll_operation());
-    assert(session.status.value() == "Registry added (7 apps)");
-    assert(session.screen == Screen::Registry);
-    assert(saved == 2 && syncs == 2 && backend_calls == 2);
-    wait_for(5);
-    assert(controller.poll_refresh());
+    assert(saved == 3);
+    controller.select_region("auto", 2200);
+    assert(session.registry.active_region() == "default");
+    assert(!controller.poll_region_debounce(4199, 2000));
 
     std::cout << "registry controller tests passed\n";
 }

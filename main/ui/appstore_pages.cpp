@@ -80,7 +80,6 @@ lv_obj_t *box(lv_obj_t *root, int x, int y, int w, int h, uint32_t color,
     return obj;
 }
 
-// A field keeps its color on the home and detail pages.
 constexpr uint32_t kVersionColor = 0x7EE787;
 constexpr uint32_t kMaintainerColor = 0xFFA657;
 constexpr uint32_t kSizeColor = 0x79C0FF;
@@ -102,20 +101,6 @@ void field_value(lv_obj_t *parent, const std::string &value, int x, int y, int w
         marquee_label(parent, value, x, y, w, font->line_height, font, color, *marquee, key);
     else
         label(parent, value, x, y, w, font->line_height, font, color, LV_LABEL_LONG_DOT);
-}
-
-// 12 px values so a full date and a size such as "1023.9 KB" fit their tags.
-constexpr uint16_t kHomeChipFontSize = 12;
-
-void home_field(lv_obj_t *root, const std::string &value, int x, int y, int w,
-                uint32_t color, HorizontalMarquee *marquee = nullptr,
-                const std::string &key = {})
-{
-    constexpr int pad = 5, height = catalog_home::kTagHeight;
-    field_chip(root, x, y, w, height, color);
-    const int line_height = store_font(value, kHomeChipFontSize)->line_height;
-    field_value(root, value, x + pad, y + (height - line_height) / 2, w - 2 * pad,
-                color, marquee, key, kHomeChipFontSize);
 }
 
 // Top of a glyph's ink, measured from the top of the font's line box.
@@ -158,9 +143,11 @@ lv_obj_t *edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towa
     return fade;
 }
 
+constexpr int kPermissionSize = 14;
+
 void permission_badge(lv_obj_t *parent, int x, int y, uint32_t color)
 {
-    constexpr int size = catalog_home::kPermissionSize;
+    constexpr int size = kPermissionSize;
     lv_obj_t *badge = box(parent, x, y, size, size, color, color, 1, 4, LV_OPA_20);
     lv_obj_set_style_border_opa(badge, LV_OPA_40, 0);
 }
@@ -409,56 +396,6 @@ lv_obj_t *settings_group(lv_obj_t *root, int y, int height, bool focused)
     return box(root, 12, y, 296, height, 0x1C1C1E, focused ? kSystemBlue : 0x2C2C2E, 1, 12);
 }
 
-// A small chevron, drawn rather than taken from a font so it stays crisp.
-void chevron(lv_obj_t *root, int x, int middle, bool left, uint32_t color)
-{
-    constexpr int arm = 5;
-    for (int row = 0; row < arm; ++row) {
-        const int inset = left ? arm - 1 - row : row;
-        box(root, x + inset, middle - arm + row, 2, 2, color, color, 0);
-        box(root, x + inset, middle + arm - 2 - row, 2, 2, color, color, 0);
-    }
-}
-
-// Shows the slice of a field that holds the caret, with the caret drawn in it.
-void editor_field(lv_obj_t *root, const std::string &value, size_t caret, int x, int y,
-                  int width, bool blink)
-{
-    const lv_font_t *font = store_font(value, 13);
-    lv_obj_t *viewport = lv_obj_create(root);
-    lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, x, y);
-    lv_obj_set_size(viewport, width, font->line_height);
-    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
-
-    const std::string before = value.substr(0, std::min(caret, value.size()));
-    const int caret_x = text_width(before, font);
-    // Keep the caret a few pixels inside the field, scrolling the text to do it.
-    constexpr int margin = 8;
-    int scroll = 0;
-    if (caret_x > width - margin) scroll = caret_x - (width - margin);
-    const int text_width_px = text_width(value, font);
-    if (scroll > 0 && text_width_px - scroll < width - margin)
-        scroll = std::max(0, text_width_px - (width - margin));
-
-    if (!value.empty())
-        label(viewport, value, -scroll, 0, LV_SIZE_CONTENT, font->line_height, font, 0xFFFFFF);
-    lv_obj_t *caret_bar = box(viewport, caret_x - scroll, 1, 1, font->line_height - 2, kSystemBlue,
-                              kSystemBlue, 0);
-    if (!blink) return;
-    lv_anim_t blink_anim;
-    lv_anim_init(&blink_anim);
-    lv_anim_set_var(&blink_anim, caret_bar);
-    lv_anim_set_values(&blink_anim, LV_OPA_COVER, LV_OPA_TRANSP);
-    lv_anim_set_duration(&blink_anim, 530);
-    lv_anim_set_playback_duration(&blink_anim, 530);
-    lv_anim_set_repeat_count(&blink_anim, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_exec_cb(&blink_anim, [](void *obj, int32_t value) {
-        lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(obj), static_cast<lv_opa_t>(value), 0);
-    });
-    lv_anim_start(&blink_anim);
-}
-
 } // namespace
 
 int glyph_middle(const lv_font_t *font, uint32_t letter)
@@ -653,40 +590,27 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
     box(root, 0, 20, 320, 150, 0x081010, 0x081010, 0);
     draw_category();
     draw_icon();
-    const int details_width = catalog_home::kDetailsRight - catalog_home::kDetailsX;
+    label(root, "In category: " + std::to_string(model.show_empty ? 0 : model.selected_index + 1) +
+          "/" + std::to_string(model.app_count), 138, 26, 116, 18,
+          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
+    label(root, "All: " + std::to_string(model.total_count), 256, 26, 64, 18,
+          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
     if (model.show_empty) {
-        const lv_font_t *font = store_font(model.empty_message, 14);
-        label(root, model.empty_message, catalog_home::kDetailsX,
-              catalog_home::kIconCenterY - font->line_height, details_width,
-              font->line_height * 2, font, 0xFFFFFF, LV_LABEL_LONG_WRAP);
+        label(root, model.empty_message, 137, 76, 178, 40,
+              store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        // Fixed rows, whether or not an app declares permissions, so the block
-        // stays centered on the icon.
-        const lv_font_t *name_font = store_font(model.name, 20, true);
-        constexpr int chip_width = 84, column_gap = 4;
-        marquee_label(root, model.name, catalog_home::kDetailsX,
-                      catalog_home::kTopY - glyph_top(name_font, 'H'), details_width,
-                      name_font->line_height, name_font, 0xFFFFFF, title_marquee_, model.name);
-        const int value_x = catalog_home::kDetailsX + chip_width + column_gap;
-        const int value_width = details_width - chip_width - column_gap;
-        home_field(root, model.version, catalog_home::kDetailsX, catalog_home::kTagRow1Y,
-                   chip_width, kVersionColor);
-        home_field(root, model.author, value_x, catalog_home::kTagRow1Y, value_width,
-                   kMaintainerColor, &author_marquee_, model.name + model.author);
-        home_field(root, model.size, catalog_home::kDetailsX, catalog_home::kTagRow2Y,
-                   chip_width, kSizeColor);
-        home_field(root, model.updated, value_x, catalog_home::kTagRow2Y, value_width,
-                   kDateColor);
-        permission_icons(root, catalog_home::kDetailsX, catalog_home::kPermissionsY,
-                         model.permissions);
+        marquee_label(root, model.name, 137, 62, 178, 27, store_font(model.name, 20, true),
+                      0xFFFFFF, title_marquee_, model.name);
+        label(root, model.version, 137, 90, 66, 22,
+              store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        marquee_label(root, model.author, 207, 90, 108, 22, store_font(model.author, 14),
+                      0xFFFFFF, author_marquee_, model.name + model.author);
+        label(root, model.size, 137, 110, 68, 22,
+              store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        label(root, model.updated, 207, 110, 110, 22,
+              store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
     }
-    if (model.show_status) {
-        // A status message temporarily takes over the permission row.
-        box(root, catalog_home::kDetailsX - 2, catalog_home::kPermissionsY - 1,
-            details_width + 4, 16, 0x081010, 0x081010, 0);
-        scrolling_status_label(root, model.status, catalog_home::kDetailsX,
-                               catalog_home::kPermissionsY + 1, details_width, 12);
-    }
+    if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
     draw_shortcuts();
 }
 
@@ -802,7 +726,6 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     marquee_label(document, app.name, 10, 4, 300, title_font->line_height, title_font,
                   0xFFFFFF, title_marquee_, app.id + app.name);
     int y = 8 + title_font->line_height;
-    // Same fields, arrangement and colors as the home page.
     detail_field(document, "VERSION", model.version, 10, y, 146, kVersionColor);
     detail_field(document, "MAINTAINER", model.author, 164, y, 146, kMaintainerColor,
                  &author_marquee_, app.id + model.author);
@@ -817,6 +740,10 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     label(document, model.state, 25, y, 285, 17, store_font(model.state, 14),
           app.installed ? 0xE6EDF3 : 0xB1BAC4, LV_LABEL_LONG_DOT);
     y += 23;
+    if (model.app.permissions != 0) {
+        permission_icons(document, 10, y, model.app.permissions);
+        y += kPermissionSize + 7;
+    }
     box(document, 10, y, 300, 1, 0x1E2A30, 0x1E2A30, 0);
     y += 7;
     lv_obj_t *description = label(document, model.description, 10, y, 300, LV_SIZE_CONTENT,
@@ -1045,8 +972,7 @@ void StoreSettingsPage::render(const PageRenderContext &context,
 
     // Region is a segmented control: the chosen segment is filled blue.
     constexpr int region_y = 48, region_height = 30;
-    const bool region_focused = model.focus == 0;
-    settings_group(root, region_y, region_height, region_focused);
+    settings_group(root, region_y, region_height, true);
     const char *const regions[] = {"Auto", "Default", "CN"};
     const char *const codes[] = {"auto", "default", "CN"};
     constexpr int segment_width = 98;
@@ -1067,93 +993,25 @@ void StoreSettingsPage::render(const PageRenderContext &context,
     }
 
     constexpr int source_y = 84, source_height = 46;
-    settings_group(root, source_y, source_height, model.focus == 1 && model.has_entry);
-    if (!model.has_entry) {
-        const std::string message =
-            model.loading ? "Loading registries\u2026" : "No registries configured";
-        const lv_font_t *font = store_font(message, 13);
-        center_label(root, message, 24, source_y + (source_height - font->line_height) / 2, 272,
-                     font->line_height, font, kSecondaryText, LV_LABEL_LONG_DOT);
-    } else {
-        const auto &entry = model.entry;
-        const std::string source = model.region_code == "auto"
-            ? "Source \xC2\xB7 " + model.active_region : "Source";
-        const lv_font_t *caption_font = store_font(source, 11);
-        label(root, source, 24, source_y + 6, 180, caption_font->line_height, caption_font,
-              kSecondaryText, LV_LABEL_LONG_DOT);
-        const std::string summary = entry.count + " apps \xC2\xB7 " +
-                                    std::to_string(model.selected_index + 1) + " of " +
-                                    std::to_string(model.entry_count);
-        lv_obj_t *count = label(root, summary, 150, source_y + 6, 146, caption_font->line_height,
-                                caption_font, kSecondaryText, LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
-
-        const lv_font_t *name_font = store_font(entry.name, 14);
-        // Chevrons bracket the name, so left/right reads as a choice.
-        constexpr int name_x = 40, name_right = 280;
-        const int name_middle = source_y + 21 + name_font->line_height / 2;
-        const uint32_t arrow = model.focus == 1 ? kSystemBlue : 0x636366;
-        chevron(root, 24, name_middle, true, arrow);
-        chevron(root, name_right, name_middle, false, arrow);
-        marquee_label(root, entry.name, name_x, source_y + 21, name_right - name_x,
-                      name_font->line_height, name_font, 0xFFFFFF, source_marquee_,
-                      entry.url + entry.name, LV_TEXT_ALIGN_CENTER);
-    }
+    settings_group(root, source_y, source_height, false);
+    const std::string source = "Active server \xC2\xB7 " +
+        std::string(model.active_region == "CN" ? "CN" : "Default");
+    const lv_font_t *caption_font = store_font(source, 11);
+    label(root, source, 24, source_y + 6, 272, caption_font->line_height, caption_font,
+          kSecondaryText, LV_LABEL_LONG_DOT);
+    const lv_font_t *source_font = store_font(model.registry_url, 13);
+    marquee_label(root, model.registry_url, 24, source_y + 23, 272,
+                  source_font->line_height, source_font, 0xFFFFFF, source_marquee_,
+                  model.registry_url, LV_TEXT_ALIGN_LEFT);
 
     if (!model.status.empty()) {
-        // Above the bookmark tabs, so a long status can scroll without covering them.
+        // Keep scrolling status text above the fixed shortcut row.
         lv_obj_t *status = label(root, model.status, 16, 134, 288, 14,
                                  store_font(model.status, 11),
                                  model.status_is_error ? 0xFF453A : kSecondaryText,
                                  LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_anim_duration(status, 8000, LV_PART_MAIN | LV_STATE_DEFAULT);
-    }
-}
-
-void StoreSettingsPage::render_editor(const PageRenderContext &context,
-                                      const RegistryEditorViewModel &model)
-{
-    context.prepare();
-    context.draw_system_bar();
-    lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
-
-    const std::string title = model.editing ? "Edit Registry" : "Add Registry";
-    const lv_font_t *title_font = store_font(title, 17, true);
-    center_strong_label(root, title, 12, 26 - glyph_top(title_font, 'E'), 296,
-                        title_font->line_height, title_font, 0xFFFFFF);
-
-    const char *const captions[] = {"Name", "URL"};
-    const std::string values[] = {model.name, model.url};
-    // The second field stops above the bookmark tabs.
-    constexpr int row_y[] = {48, 92};
-    for (int i = 0; i < 2; ++i) {
-        constexpr int height = 40;
-        const bool focused = model.editing_field && model.focus == i;
-        settings_group(root, row_y[i], height, focused);
-        const lv_font_t *caption_font = store_font(captions[i], 11);
-        label(root, captions[i], 24, row_y[i] + 4, 272, caption_font->line_height, caption_font,
-              focused ? kSystemBlue : kSecondaryText);
-        if (!model.editing_field) {
-            const lv_font_t *font = store_font(values[i], 13);
-            label(root, values[i], 24, row_y[i] + 19, 272, font->line_height, font, 0xFFFFFF,
-                  LV_LABEL_LONG_DOT);
-        } else if (!focused && values[i].empty()) {
-            const lv_font_t *font = store_font("Required", 13);
-            label(root, "Required", 24, row_y[i] + 19, 272, font->line_height, font, 0x636366);
-        } else {
-            // The caret keeps the typed end in view, scrolling the field with it.
-            editor_field(root, values[i], focused ? model.caret : values[i].size(), 24,
-                         row_y[i] + 19, 272, focused);
-        }
-    }
-    if (!model.status.empty()) {
-        lv_obj_t *status = label(root, model.status, 16, 136, 240, 14,
-                                 store_font(model.status, 11),
-                                 model.status_is_error ? 0xFF453A : kSecondaryText,
-                                 LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
     }
 }
 

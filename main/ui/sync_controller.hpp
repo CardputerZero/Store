@@ -39,7 +39,7 @@ public:
 
 private:
     static bool startup_failed(const std::string &output, std::string *message);
-    void apply_output(const std::string &output, bool refresh_registries_after);
+    void apply_output(const std::string &output);
     void set_start_failure();
     void continue_after_startup_failure(const std::string &detail);
 

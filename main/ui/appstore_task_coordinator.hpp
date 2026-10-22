@@ -22,7 +22,6 @@ enum class Screen {
     Progress,
     ErrorDialog,
     Registry,
-    RegistryEdit,
     ShareCode,
     Search,
     Screenshots,
@@ -31,19 +30,11 @@ enum class Screen {
 enum class RegistryOpKind {
     None,
     SetRegion,
-    AddRegistry,
-    EditRegistry,
-    ToggleRegistry,
-    DeleteRegistry,
 };
 
 struct RegistryOpRequest {
     RegistryOpKind kind = RegistryOpKind::None;
     std::string region;
-    std::string url;
-    std::string old_url;
-    std::string name;
-    bool enable = false;
 };
 
 struct RegistryOpResult {
@@ -80,14 +71,6 @@ public:
     {
         switch (request.kind) {
             case RegistryOpKind::SetRegion: return {"--set-region", request.region};
-            case RegistryOpKind::AddRegistry:
-                return {"--add-registry", request.url, "--registry-name", request.name};
-            case RegistryOpKind::EditRegistry:
-                return {"--edit-registry", request.old_url, request.url,
-                        "--registry-name", request.name};
-            case RegistryOpKind::ToggleRegistry:
-                return {request.enable ? "--enable-registry" : "--disable-registry", request.url};
-            case RegistryOpKind::DeleteRegistry: return {"--remove-registry", request.url};
             case RegistryOpKind::None: return {};
         }
         return {};

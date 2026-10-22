@@ -67,7 +67,6 @@ private:
     void set_active_page(AppStoreUiPage &page);
     void navigate_back();
     void open_registry_screen();
-    void open_registry_add_screen();
     void execute_detail_confirmation();
     void repair_package_error();
     static void frame_ready(lv_event_t *event);

@@ -15,10 +15,9 @@
 namespace appstore_ui {
 namespace {
 
-constexpr int kCategoryX = 28;
-constexpr int kCategoryY = 24;
-constexpr int kCategoryWidth = 86;
-constexpr int kCategoryKeyWidth = 18;
+constexpr int kHomeIconX = 39;
+constexpr int kHomeIconY = 65;
+constexpr int kHomeIconSize = 60;
 constexpr uint32_t kStatusVisibleMs = 6000;
 
 lv_obj_t *label(lv_obj_t *parent, const std::string &text, int x, int y, int w, int h,
@@ -80,32 +79,6 @@ std::string app_initial(const appstore::StoreApp &app)
     return "A";
 }
 
-constexpr int kCounterIconGap = 4;
-
-int counter_width(const std::string &text)
-{
-    lv_point_t size = {};
-    lv_text_get_size(&size, text.c_str(), store_font("", 14), 0, 0, LV_COORD_MAX,
-                     LV_TEXT_FLAG_NONE);
-    return size.x;
-}
-
-// Gray header count at x, centered on `middle`; "..." if it needs more than `width`.
-void counter_label(lv_obj_t *root, const std::string &text, int x, int width, int middle)
-{
-    const lv_font_t *font = store_font("", 14);
-    label(root, text, x, middle - glyph_middle(font, '0'), width, font->line_height, font,
-          catalog_home::kMuted, LV_LABEL_LONG_DOT);
-}
-
-// Gray count, right-aligned at `right` and centered on `middle`. Returns its left edge.
-int header_count(lv_obj_t *root, const std::string &text, int right, int middle)
-{
-    const int width = counter_width(text);
-    counter_label(root, text, right - width, width + 4, middle);
-    return right - width;
-}
-
 // The Store icon scaled into the size x size square at x, y; false if it is missing.
 bool draw_store_icon(lv_obj_t *root, AppStoreImageRenderer &images, int x, int y, int size)
 {
@@ -117,37 +90,6 @@ bool draw_store_icon(lv_obj_t *root, AppStoreImageRenderer &images, int x, int y
     lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
     lv_obj_set_size(icon, size, size);
     return true;
-}
-
-// Catalog size: Store icon, then the count. Returns the icon's left edge.
-int draw_catalog_total(lv_obj_t *root, AppStoreImageRenderer &images, int total,
-                       int right, int middle)
-{
-    // The Store artwork is a badge with its own padding, so the box has to be
-    // larger than the category's letter height to look the same size.
-    constexpr int icon_size = 18;
-    const int icon_x = header_count(root, std::to_string(total), right, middle) -
-                       kCounterIconGap - icon_size;
-    if (!draw_store_icon(root, images, icon_x, middle - icon_size / 2, icon_size)) {
-        const lv_font_t *font = store_font("", 14);
-        strong_label(root, "*", icon_x, middle - glyph_middle(font, '*'), icon_size,
-                     font->line_height, font, catalog_home::kMuted);
-    }
-    return icon_x;
-}
-
-// Selected app within the category: the up/down keys that change it, then "x / y".
-// Returns the group's left edge.
-int draw_selection_position(lv_obj_t *root, int position, int count, int right, int middle)
-{
-    constexpr int key = 16, key_gap = 2;
-    const int text_x = header_count(root, std::to_string(position) + " / " +
-                                    std::to_string(count), right, middle);
-    const int down_x = text_x - kCounterIconGap - key / 2;
-    const int up_x = down_x - key - key_gap;
-    draw_arrow_key(root, ArrowKey::Down, down_x, middle, key, key);
-    draw_arrow_key(root, ArrowKey::Up, up_x, middle, key, key);
-    return up_x - key / 2;
 }
 
 } // namespace
@@ -187,55 +129,33 @@ void AppStorePresenter::prepare(AppStoreUiPage &page)
 
 void AppStorePresenter::draw_category_selector(lv_obj_t *root)
 {
+    if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
+        strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    const lv_font_t *font = store_font(category, 14, true);
-    marquee_label(root, category, kCategoryX, kCategoryY, kCategoryWidth, 20, font, 0xFFFFFF,
+    marquee_label(root, category, 28, 24, 86, 20, store_font(category, 14, true), 0xFFFFFF,
                   category_marquee_, category, LV_TEXT_ALIGN_CENTER);
-    // The name is uppercase: center on its capitals, not on the line box,
-    // which also reserves room below the baseline for descenders.
-    const int middle = kCategoryY + glyph_middle(font, 'H');
-    const int right_key_x = kCategoryX + kCategoryWidth + 10;
-    draw_arrow_key(root, ArrowKey::Left, kCategoryX - 10, middle, kCategoryKeyWidth);
-    draw_arrow_key(root, ArrowKey::Right, right_key_x, middle, kCategoryKeyWidth);
-
-    // Header counters, right to left: catalog size, then the selected app's
-    // position in the category. The category's own position follows its right
-    // key and gets whatever room is left.
-    constexpr int counter_gap = 10;
-    int free_right = draw_catalog_total(root, images_,
-                                        static_cast<int>(session_.catalog.apps().size()),
-                                        catalog_home::kRight, middle) - counter_gap;
-    const int selected = session_.catalog.selected_index();
-    const int visible = static_cast<int>(session_.catalog.visible().size());
-    if (selected >= 0 && selected < visible)
-        free_right = draw_selection_position(root, selected + 1, visible, free_right, middle) -
-                     counter_gap;
-
-    const auto &categories = session_.catalog.categories();
-    const int index = session_.catalog.category_index();
-    if (index < 0 || index >= static_cast<int>(categories.size())) return;
-    const std::string position = std::to_string(index + 1) + " / " +
-                                 std::to_string(categories.size());
-    const int position_x = right_key_x + kCategoryKeyWidth / 2 + kCounterIconGap;
-    const int width = std::min(counter_width(position) + 4, free_right - position_x);
-    if (width > 0) counter_label(root, position, position_x, width, middle);
+    if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
+        strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
 }
 
 void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
                                               const appstore::StoreApp *app)
 {
-    using catalog_home::kIconCenterY;
-    using catalog_home::kIconSize;
-    using catalog_home::kIconX;
-    const lv_font_t *font = &lv_font_montserrat_20;
+    const int arrow_x = kHomeIconX + (kHomeIconSize - 14) / 2;
+    if (!images_.draw_packaged(root, "store_arrow_up.png", arrow_x, 48))
+        center_strong_label(root, "^", kHomeIconX + 16, 46, 28, 18,
+                            &lv_font_montserrat_20, 0xFF6A3D);
     if (!app) {
-        center_strong_label(root, "-", kIconX, kIconCenterY - glyph_middle(font, '-'),
-                            kIconSize, font->line_height, font, 0x9A9A9A);
+        center_strong_label(root, "-", kHomeIconX + 22, kHomeIconY + 24, 24, 22,
+                            &lv_font_montserrat_20, 0x9A9A9A);
     } else if (!images_.draw_app_icon(root, session_.app_dir, *app)) {
-        center_strong_label(root, app_initial(*app), kIconX,
-                            kIconCenterY - glyph_middle(font, 'H'), kIconSize,
-                            font->line_height, font, app->installed ? 0x52D05D : 0xFFFFFF);
+        center_strong_label(root, app_initial(*app), kHomeIconX, kHomeIconY + 21,
+                            kHomeIconSize, 28, &lv_font_montserrat_20,
+                            app->installed ? 0x52D05D : 0xFFFFFF);
     }
+    if (!images_.draw_packaged(root, "store_arrow_down.png", arrow_x, 136))
+        center_strong_label(root, "v", kHomeIconX + 16, 134, 28, 18,
+                            &lv_font_montserrat_20, 0xFF6A3D);
 }
 
 bool AppStorePresenter::draw_detail_background(lv_obj_t *root,
@@ -306,16 +226,8 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                 view_models_.settings(registry_operation_running);
             settings_page_.render(context(settings_page_), model);
             AppStoreShortcutBar::render_settings(
-                settings_page_.screen(), model.has_entry,
-                model.has_entry && model.entry.builtin,
-                !model.loading && !model.operation_running &&
+                settings_page_.screen(), !model.loading && !model.operation_running &&
                     !model.region_commit_pending);
-            break;
-        }
-        case Screen::RegistryEdit: {
-            const RegistryEditorViewModel model = view_models_.registry_editor();
-            settings_page_.render_editor(context(settings_page_), model);
-            AppStoreShortcutBar::render_editor(settings_page_.screen(), !model.editing_field);
             break;
         }
         case Screen::ShareCode:

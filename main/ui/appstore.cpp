@@ -66,7 +66,6 @@ const char *screen_name(Screen screen)
         case Screen::Progress: return "Progress";
         case Screen::ErrorDialog: return "ErrorDialog";
         case Screen::Registry: return "Registry";
-        case Screen::RegistryEdit: return "RegistryEdit";
         case Screen::ShareCode: return "ShareCode";
         case Screen::Search: return "Search";
         case Screen::Screenshots: return "Screenshots";
@@ -208,7 +207,7 @@ void AppStoreApp::draw_system_bar()
         if (sync_component) sync_component->set_sync_active(sync_active, lv_tick_get());
     }
     const uint32_t elapsed = lv_tick_elaps(start);
-    if (elapsed >= 15 || g_runtime.session.screen == Screen::Registry || g_runtime.session.screen == Screen::RegistryEdit) {
+    if (elapsed >= 15 || g_runtime.session.screen == Screen::Registry) {
         app_tracef("draw_system_bar elapsed=%ums status=%ums screen=%s",
                    elapsed, status_ms, screen_name(g_runtime.session.screen));
     }
@@ -231,7 +230,7 @@ void AppStoreApp::refresh()
     const bool screenshots = poll_screenshots();
     const uint32_t elapsed = lv_tick_elaps(start);
     if (elapsed >= 20 || result.any() || screenshots ||
-        g_runtime.session.screen == Screen::Registry || g_runtime.session.screen == Screen::RegistryEdit) {
+        g_runtime.session.screen == Screen::Registry) {
         app_tracef("refresh_timer elapsed=%ums screen=%s region_debounce=%d registry_refresh=%d registry_op=%d plan=%d summary=%d status_timeout=%d top_status=%d screenshots=%d",
                    elapsed, screen_name(g_runtime.session.screen), result.region_debounce ? 1 : 0,
                    result.registry_refresh ? 1 : 0, result.registry_operation ? 1 : 0,
@@ -320,9 +319,6 @@ void AppStoreApp::navigate_back()
             g_runtime.session.screen = g_runtime.session.sync.startup_active
                 ? Screen::StartupSync : Screen::Home;
             break;
-        case Screen::RegistryEdit:
-            g_runtime.session.screen = Screen::Registry;
-            break;
         case Screen::ShareCode:
             g_runtime.session.screen = Screen::Home;
             break;
@@ -342,16 +338,11 @@ void AppStoreApp::poll_sync()
 
 void AppStoreApp::open_registry_screen()
 {
-    app_tracef("open_registry_screen begin from=%s entries=%zu loading=%d refresh_running=%d",
-               screen_name(g_runtime.session.screen), g_runtime.session.registry.entries().size(), g_runtime.session.registry_loading ? 1 : 0,
+    app_tracef("open_registry_screen begin from=%s loading=%d refresh_running=%d",
+               screen_name(g_runtime.session.screen), g_runtime.session.registry_loading ? 1 : 0,
                runtime_.task_service.registry_refresh_running() ? 1 : 0);
     registry_actions_.open();
     app_tracef("open_registry_screen end screen=%s", screen_name(g_runtime.session.screen));
-}
-
-void AppStoreApp::open_registry_add_screen()
-{
-    registry_actions_.open_add();
 }
 
 void AppStoreApp::execute_detail_confirmation()
@@ -437,7 +428,7 @@ AppStoreApp::AppStoreApp()
            [this]() { runtime_.registry_persistence.save_backend(); },
            [this]() { request_coordinator_.request_summary(); },
            [this](bool refresh) { sync_actions_.start(refresh, lv_tick_get()); },
-           []() { stop_backend_service(); }}),
+           []() { cancel_sync(); }}),
       catalog_actions_(runtime_.session, share_code_,
                        [this]() { request_coordinator_.request_summary(); }),
       request_coordinator_(
@@ -458,14 +449,13 @@ AppStoreApp::AppStoreApp()
            []() {
                // The startup screen animates on its own.
                return g_runtime.session.screen != Screen::Registry &&
-                      g_runtime.session.screen != Screen::RegistryEdit &&
                       g_runtime.session.screen != Screen::StartupSync;
            }}),
       input_controller_(
           runtime_.session, runtime_.package_jobs.state(), runtime_.exit, share_code_, catalog_actions_,
           detail_actions_, registry_actions_, sync_actions_,
           {[this]() { request_quit(); }, [this]() { navigate_back(); },
-           [this]() { open_registry_screen(); }, [this]() { open_registry_add_screen(); },
+           [this]() { open_registry_screen(); },
            [this]() { execute_detail_confirmation(); },
            [this]() { repair_package_error(); },
            [this]() { render_current_screen(); },
@@ -611,8 +601,7 @@ void AppStoreApp::activate(Screen screen)
         case Screen::Home:
         case Screen::ShareCode:
         case Screen::Search: set_active_page(catalog_page_); break;
-        case Screen::Registry:
-        case Screen::RegistryEdit: set_active_page(settings_page_); break;
+        case Screen::Registry: set_active_page(settings_page_); break;
         case Screen::Detail:
         case Screen::Confirm:
         case Screen::Progress:

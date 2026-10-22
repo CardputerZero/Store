@@ -33,7 +33,6 @@ struct CatalogDisplayViewModel {
     std::string size;
     std::string updated;
     std::string empty_message;
-    uint32_t permissions = 0;
     int selected_index = 0;
     int app_count = 0;
     int total_count = 0;
@@ -120,27 +119,9 @@ struct StoreSettingsViewModel {
     std::string region_code;
     std::string active_region;
     std::string registry_url;
-    int focus = 0;
     bool loading = false;
-    bool has_entry = false;
-    appstore::RegistryEntry entry;
-    int selected_index = 0;
-    int entry_count = 0;
     bool operation_running = false;
     bool region_commit_pending = false;
-    std::string status;
-    bool status_is_error = false;
-};
-
-struct RegistryEditorViewModel {
-    bool editing = false;
-    std::string name;
-    std::string url;
-    int focus = 0;
-    // Byte offset of the caret in the focused field.
-    size_t caret = 0;
-    // Save stays inactive until Enter confirms the fields.
-    bool editing_field = true;
     std::string status;
     bool status_is_error = false;
 };

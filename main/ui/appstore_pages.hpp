@@ -28,31 +28,6 @@ enum class ArrowKey { Left, Up, Right, Down };
 void draw_arrow_key(lv_obj_t *parent, ArrowKey arrow, int center_x, int center_y,
                     int width = 18, int height = 16);
 
-// Home catalog geometry shared by the page and the icon panel.
-namespace catalog_home {
-// Content edges: the category's left key and the header counters' right end.
-constexpr int kLeft = 9;
-constexpr int kRight = 312;
-// Left rows: the name's capitals, two tag rows and the permission icons,
-// centered as one block between the header and the bookmark tabs.
-constexpr int kTopY = 54;
-constexpr int kTagHeight = 17;
-// Clears the 20 px name, including its descenders.
-constexpr int kTagRow1Y = kTopY + 23;
-constexpr int kTagRow2Y = kTagRow1Y + kTagHeight + 3;
-constexpr int kPermissionSize = 14;
-constexpr int kPermissionsY = kTagRow2Y + kTagHeight + 6;
-// The icon on the right fills the height between the header and the bookmark
-// tabs, centered on the left block.
-constexpr int kIconSize = 100;
-constexpr int kIconX = kRight - kIconSize;
-constexpr int kIconCenterY = (kTopY + kPermissionsY + kPermissionSize) / 2;
-constexpr int kIconY = kIconCenterY - kIconSize / 2;
-constexpr int kDetailsX = kLeft;
-constexpr int kDetailsRight = kIconX - 9;
-constexpr uint32_t kMuted = 0x8B949E;
-} // namespace catalog_home
-
 // One line of text; when it does not fit, it bounces like APPLaunch's
 // selected title. Text that fits is placed according to align.
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
@@ -145,8 +120,6 @@ class StoreSettingsPage : public AppStoreUiPage
 public:
     void render(const PageRenderContext &context,
                 const StoreSettingsViewModel &model);
-    void render_editor(const PageRenderContext &context,
-                       const RegistryEditorViewModel &model);
 private:
     HorizontalMarquee source_marquee_;
 };

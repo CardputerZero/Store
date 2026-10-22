@@ -26,6 +26,28 @@ public:
     bool load(RegistryConfig &config) const;
     bool save(const RegistryConfig &config) const;
 
+    static constexpr const char *kDefaultRegistryUrl =
+        "https://cardputerzero.github.io/generated/registry.json";
+    static constexpr const char *kChinaRegistryUrl =
+        "https://cardputer-zero-repo.oss-cn-shenzhen.aliyuncs.com/packages/cn/registry.json";
+
+    static RegistryConfig normalize(RegistryConfig config)
+    {
+        if (config.region != "auto" && config.region != "default" && config.region != "CN")
+            config.region = "auto";
+        if (config.region != "auto") config.active_region = config.region;
+        else if (config.active_region != "default" && config.active_region != "CN")
+            config.active_region = "default";
+        RegistryEntry entry;
+        entry.url = config.active_region == "CN" ? kChinaRegistryUrl : kDefaultRegistryUrl;
+        entry.name = config.active_region == "CN" ? "CardputerZero Hub CN" : "CardputerZero Hub";
+        entry.region = config.active_region;
+        entry.enabled = true;
+        entry.builtin = true;
+        config.entries = {entry};
+        return config;
+    }
+
     static std::string pack_entry(const RegistryEntry &entry);
     static bool unpack_entry(const std::string &packed, RegistryEntry &entry);
 

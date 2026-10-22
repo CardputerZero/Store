@@ -29,7 +29,6 @@ public:
     ErrorDialogViewModel error() const;
     InitializationProgressViewModel initialization() const;
     StoreSettingsViewModel settings(bool operation_running) const;
-    RegistryEditorViewModel registry_editor() const;
     TextEntryViewModel share_code() const;
     SearchPageViewModel search();
 
