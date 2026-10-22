@@ -11,6 +11,7 @@
 #include "keyboard_input.h"
 #include "startup_network_flow.hpp"
 
+#include <climits>
 #include <utility>
 
 namespace appstore_ui {
@@ -75,6 +76,8 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
                 } else if (session_.screen == Screen::Home ||
                            session_.screen == Screen::StartupSync) {
                     session_.exit_hint_visible = true;
+                } else if (session_.screen == Screen::Confirm) {
+                    detail_.cancel_confirmation();
                 } else if (actions_.navigate_back) {
                     actions_.navigate_back();
                 }
@@ -140,7 +143,9 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
                 catalog_.open_search();
             else if (matches(key, '7', KEY_7)) {
                 appstore::StoreApp *app = session_.catalog.selected_app();
-                if (app && appstore::can_install_app(*app))
+                if (app && appstore::can_upgrade_app(*app))
+                    detail_.upgrade(app);
+                else if (app && appstore::can_install_app(*app))
                     detail_.start_confirmation(app->installed ? "reinstall" : "install");
                 else
                     session_.status.value() = app ? "Only approved apps can install" : "No selected app";
@@ -155,17 +160,26 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
         case Screen::Detail: {
             appstore::StoreApp *app = catalog_.ensure_selected();
             const bool up = key.code == KEY_UP || key.code == KEY_F || key.ch == 'f';
-            if (up || key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x') {
+            const bool page_up = key.ch == 'z' || key.ch == 'l' || key.code == KEY_PAGEUP;
+            const bool page_down = key.ch == 'c' || key.ch == 'm' || key.code == KEY_PAGEDOWN;
+            const bool home = key.ch == 'k' || key.code == KEY_HOME;
+            const bool end = key.ch == 'n' || key.code == KEY_END;
+            if (up || key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x' ||
+                page_up || page_down || home || end) {
                 // Rebuilding the page takes longer than the key repeat interval,
                 // so move the drawn page unless a status toast has to be cleared.
                 const bool toast = !session_.status.value().empty();
-                detail_.scroll_page(up ? -1 : 1, now);
+                if (home) detail_.scroll_to(0, now);
+                else if (end) detail_.scroll_to(INT_MAX, now);
+                else if (page_up || page_down) {
+                    constexpr int viewport_height = 129;
+                    const int steps = (page_up ? -1 : 1) *
+                        ((viewport_height + DetailMediaState::kPageStep - 1) /
+                         DetailMediaState::kPageStep);
+                    detail_.scroll_page(steps, now);
+                } else detail_.scroll_page(up ? -1 : 1, now);
                 if (!toast && actions_.scroll_detail && actions_.scroll_detail()) return;
             }
-            else if (key.code == KEY_LEFT || key.code == KEY_Z || key.ch == 'z')
-                detail_.cycle_screenshot(-1, now);
-            else if (key.code == KEY_RIGHT || key.code == KEY_C || key.ch == 'c')
-                detail_.cycle_screenshot(1, now);
             else if (matches(key, '4', KEY_4) || matches(key, 'b', KEY_B))
                 session_.screen = Screen::Home;
             else if (matches(key, '5', KEY_5))

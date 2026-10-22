@@ -34,7 +34,8 @@ void AppStoreShortcutBar::render_catalog(lv_obj_t *root,
     shortcut_label(root, 104, "share", 0x168CE5);
     shortcut_label(root, 160, "search", 0x7ED957);
     if (app && appstore::can_install_app(*app))
-        shortcut_label(root, 216, app->installed ? "reinstall" : "install", 0xB069FF);
+        shortcut_label(root, 216, appstore::can_upgrade_app(*app) ? "update" :
+                       (app->installed ? "reinstall" : "install"), 0xB069FF);
     if (app)
         shortcut_label(root, 272, "detail", 0xFF8A2A);
 }
@@ -49,7 +50,7 @@ void AppStoreShortcutBar::render_detail(lv_obj_t *root, const std::string &app_d
     if (appstore::can_reinstall_app(app))
         shortcut_label(root, 160, "reinstall", 0xB069FF);
     if (appstore::can_upgrade_app(app))
-        shortcut_label(root, 216, "upgrade", 0xB069FF);
+        shortcut_label(root, 216, "update", 0xB069FF);
     if (app.installed)
         shortcut_label(root, 272, "remove", 0xFF5B4A);
 }

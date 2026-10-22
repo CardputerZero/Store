@@ -36,6 +36,7 @@ struct CatalogDisplayViewModel {
     int selected_index = 0;
     int app_count = 0;
     int total_count = 0;
+    bool update_available = false;
     bool show_empty = false;
     bool show_status = false;
     std::string status;

@@ -43,6 +43,7 @@ public:
     bool open_screenshots(uint32_t now);
     void ensure_screenshots();
     void scroll_page(int delta, uint32_t now);
+    void scroll_to(int target, uint32_t now);
 
 private:
     appstore::StoreApp *selected_app();
@@ -53,6 +54,7 @@ private:
     PlanStarter start_plan_;
     PlanRunning plan_running_;
     ScreenshotStarter start_screenshots_;
+    Screen confirmation_origin_ = Screen::Detail;
 };
 
 } // namespace appstore_ui

@@ -24,6 +24,10 @@ std::vector<std::string> wrap_display_text(std::string text, int)
 }
 
 bool can_install_app(const StoreApp &app) { return app.installable; }
+bool can_upgrade_app(const StoreApp &app)
+{
+    return app.installable && app.installed && app.version != app.installed_version;
+}
 std::string review_label(const StoreApp &app) { return app.review_status; }
 std::string job_action_label(const std::string &action)
 {
@@ -90,6 +94,16 @@ int main()
     assert(catalog.version == "2.0");
     assert(catalog.size == "19.6 MB");
     assert(catalog.updated == "2026-07-23");
+    assert(catalog.update_available);
+    app.installed_version = app.version;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installed_version = "1.0";
+    app.installable = false;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installable = true;
+    app.installed = false;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installed = true;
     session.catalog.categories().push_back("Installed");
     session.catalog.select_category_by_name("Installed");
     session.catalog.rebuild_visible();
@@ -99,6 +113,7 @@ int main()
     session.catalog.rebuild_visible();
     catalog = factory.catalog(100, 6000);
     assert(catalog.show_empty && catalog.empty_message == "No installed apps");
+    assert(!catalog.update_available);
     app.installed = true;
 
     app.name = "Line one\nLine two";

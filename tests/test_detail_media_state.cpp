@@ -37,6 +37,10 @@ int main()
     state.scroll_page(10, 5000);
     assert(state.page_scroll() == 0 && state.page_glide_remaining(5000) == 0);
     state.normalize_page("c", 400, 129);
+    state.scroll_to(140, 6000);
+    assert(state.page_scroll() == 140);
+    state.scroll_to(0, 6100);
+    assert(state.page_scroll() == 0);
     state.scroll_page(1, 0xffffffa0U);
     assert(state.page_glide_remaining(0x14U) == 64 && state.page_scroll_at(0x14U) == 23);
     assert(state.needs_loading("a"));

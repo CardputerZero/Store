@@ -88,8 +88,15 @@ int main()
     AppStoreTaskService tasks(coordinator, workers,
         [](const std::vector<std::string> &, int *rc) { *rc = 0; return std::string{}; });
     CatalogController catalog(session, share_code, []() {});
-    DetailActionController detail(session, package_job, [](const std::string &, const std::string &) {},
-                                  []() { return false; });
+    std::string planned_action;
+    std::string planned_app;
+    int plans = 0;
+    DetailActionController detail(session, package_job,
+        [&](const std::string &action, const std::string &app_id) {
+            planned_action = action;
+            planned_app = app_id;
+            ++plans;
+        }, []() { return false; });
     RegistryController registry(
         session, tasks, package_job,
         {[](const std::string &) { return appstore::RegistryData{}; },
@@ -227,12 +234,28 @@ int main()
     assert(page_moves == 3 && renders == renders_before_scroll + 2);
     page_drawn = true;
     session.catalog.selected_app()->images = "icon,one,two";
-    input.handle({KEY_C, 0, 'c'}, 188);
-    assert(session.detail_media.image_index() == 1 && session.screen == Screen::Detail);
-    input.handle({KEY_Z, 0, 'z'}, 189);
-    assert(session.detail_media.image_index() == 0);
+    session.screen = Screen::Detail;
+    session.detail_media.normalize_page(detail_id, 1000, 129);
+    input.handle({0, 0, 'c'}, 200);
+    const int page = ((129 + 24 - 1) / 24) * 24;
+    assert(session.detail_media.page_scroll() == page && session.screen == Screen::Detail);
+    input.handle({0, 0, 'z'}, 400);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'm'}, 600);
+    assert(session.detail_media.page_scroll() == page);
+    input.handle({0, 0, 'l'}, 800);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'k'}, 1000);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'n'}, 1200);
+    assert(session.detail_media.page_scroll() == session.detail_media.page_max_scroll() &&
+           session.detail_media.image_index() == 0);
     input.handle({KEY_5}, 190);
     assert(session.screen == Screen::Screenshots);
+    input.handle({KEY_C, 0, 'c'}, 191);
+    assert(session.detail_media.image_index() == 1);
+    input.handle({KEY_Z, 0, 'z'}, 192);
+    assert(session.detail_media.image_index() == 0);
     session.screen = Screen::Detail;
     const size_t sounds_before_back = sounds.size();
     input.handle({KEY_ESC}, 200);
@@ -268,6 +291,60 @@ int main()
     assert(repairs == 1);
     input.handle({KEY_B}, 510);
     assert(backs == 3);
+
+    auto *selected = session.catalog.selected_app();
+    selected->installable = true;
+    selected->installed = true;
+    selected->version = "2.0";
+    selected->installed_version = "1.0";
+    const std::string plan = "PLAN\t" + selected->id + "\tDemo\t2.0\t12 MB\t80 MB\tlibfoo\t\n";
+    const int backs_before_confirm = backs;
+    uint32_t tick = 600;
+    for (const auto origin : {Screen::Home, Screen::Detail}) {
+        for (const auto cancel : {KEY_B, KEY_N, KEY_ENTER, KEY_ESC}) {
+            session.screen = origin;
+            const int plans_before = plans;
+            input.handle({KEY_7}, tick++);
+            assert(plans == plans_before + 1);
+            assert(planned_action == "upgrade" && planned_app == selected->id);
+            assert(session.screen == origin);
+            assert(detail.apply_plan_result(planned_action, planned_app, origin, 0, plan));
+            assert(session.screen == Screen::Confirm);
+            session.confirmation.focus() = 1;
+            input.handle({static_cast<uint32_t>(cancel)}, tick++);
+            if (cancel == KEY_ESC)
+                input.handle({KEY_ESC, 0, 0, true}, tick++);
+            assert(session.screen == origin);
+            assert(session.confirmation.action().empty());
+            assert(!session.exit_hint_visible && backs == backs_before_confirm);
+        }
+    }
+    session.screen = Screen::Detail;
+    input.handle({KEY_6}, tick++);
+    assert(planned_action == "reinstall");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Detail);
+
+    session.screen = Screen::Home;
+    selected->installed_version = selected->version;
+    input.handle({KEY_7}, tick++);
+    assert(planned_action == "reinstall");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Home);
+    selected->installed = false;
+    input.handle({KEY_7}, tick++);
+    assert(planned_action == "install");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Home);
+    selected->installable = false;
+    const int plans_before_blocked = plans;
+    input.handle({KEY_7}, tick++);
+    assert(plans == plans_before_blocked);
+    assert(session.status.value() == "Only approved apps can install");
+    session.catalog.visible().clear();
+    input.handle({KEY_7}, tick++);
+    assert(plans == plans_before_blocked && session.status.value() == "No selected app");
+    session.catalog.rebuild_visible();
 
     // Root Esc opens a modal; dismissing it must not trigger the key's action.
     session.screen = Screen::Home;

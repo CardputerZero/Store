@@ -51,7 +51,12 @@ void DetailMediaState::normalize_page(const std::string &app_id, int content_hei
 
 void DetailMediaState::scroll_page(int delta, uint32_t now)
 {
-    const int target = std::clamp(page_scroll_ + delta * kPageStep, 0, page_max_scroll_);
+    scroll_to(page_scroll_ + delta * kPageStep, now);
+}
+
+void DetailMediaState::scroll_to(int target, uint32_t now)
+{
+    target = std::clamp(target, 0, page_max_scroll_);
     if (target == page_scroll_) return;
     // Start from the drawn position so key repeat keeps one continuous motion.
     page_scroll_from_ = page_scroll_at(now);

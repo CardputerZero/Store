@@ -21,6 +21,7 @@ public:
     void cycle_image(int delta, int image_count);
     void normalize_page(const std::string &app_id, int content_height, int viewport_height);
     void scroll_page(int delta, uint32_t now);
+    void scroll_to(int target, uint32_t now);
     // Target offset; the page glides there from where it was drawn.
     int page_scroll() const { return page_scroll_; }
     int page_max_scroll() const { return page_max_scroll_; }

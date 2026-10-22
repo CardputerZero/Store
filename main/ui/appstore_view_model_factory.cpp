@@ -117,6 +117,7 @@ CatalogDisplayViewModel AppStoreViewModelFactory::catalog(
     model.empty_message = session_.catalog.current_category_name() == "Installed"
         ? "No installed apps" : "No apps";
     if (const auto *app = session_.catalog.selected_app()) {
+        model.update_available = can_upgrade_app(*app);
         model.name = single_line(app->name);
         model.version = single_line(app->version.empty() ? "-" : app->version);
         model.author = single_line(app->author.empty() ? "-" : app->author);

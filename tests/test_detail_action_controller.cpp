@@ -102,6 +102,35 @@ int main()
     controller.cancel_confirmation();
     assert(session.screen == Screen::Detail && session.confirmation.action().empty());
 
+    for (const auto origin : {Screen::Home, Screen::Detail}) {
+        session.screen = origin;
+        controller.upgrade(session.catalog.selected_app());
+        assert(started_action == "upgrade" && started_app == "demo");
+        assert(session.screen == origin);
+        assert(controller.apply_plan_result("upgrade", "demo", origin, 0, plan));
+        controller.cancel_confirmation();
+        assert(session.screen == origin && session.confirmation.action().empty());
+        controller.upgrade(session.catalog.selected_app());
+        assert(controller.apply_plan_result("upgrade", "demo", origin, 0, plan));
+        assert(controller.execute_confirmation(1500));
+        assert(package_job.action == "upgrade" && package_job.app_id == "demo");
+        assert(package_job.running && package_job.pending_start);
+        assert(session.screen == Screen::Progress);
+        package_job.reset();
+    }
+
+    session.screen = Screen::Home;
+    controller.upgrade(session.catalog.selected_app());
+    assert(!controller.apply_plan_result("upgrade", "demo", Screen::Home, 1, "Plan failed"));
+    assert(session.screen == Screen::Home && session.status.value() == "Plan failed");
+    session.catalog.selected_app()->id = "other";
+    assert(!controller.apply_plan_result("upgrade", "demo", Screen::Home, 0, plan));
+    assert(session.screen == Screen::Home && session.confirmation.action().empty());
+    session.catalog.selected_app()->id = "demo";
+    session.screen = Screen::Detail;
+    assert(!controller.apply_plan_result("upgrade", "demo", Screen::Home, 0, plan));
+    assert(session.screen == Screen::Detail && session.confirmation.action().empty());
+
     session.screen = Screen::Home;
     assert(!controller.apply_plan_result("upgrade", "demo", Screen::Detail, 0, plan));
     assert(session.status.value() == "Install plan expired");

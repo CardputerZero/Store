@@ -285,8 +285,7 @@ void AppStoreApp::navigate_back()
             g_runtime.session.screen = Screen::Home;
             break;
         case Screen::Confirm:
-            g_runtime.session.screen = Screen::Detail;
-            g_runtime.session.confirmation.reset();
+            detail_actions_.cancel_confirmation();
             break;
         case Screen::Progress:
             if (g_runtime.package_jobs.state().running || g_runtime.package_jobs.state().pending_start) {
