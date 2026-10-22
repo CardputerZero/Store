@@ -45,6 +45,9 @@ void AppStoreShortcutBar::render_detail(lv_obj_t *root, const std::string &app_d
 {
     (void)app_dir;
     shortcut_label(root, 48, "back", 0xF0B429);
+    // Unknown counts (-1) may still have cached images, so hide only a known zero.
+    if (app.screenshot_count != 0)
+        shortcut_label(root, 104, "screens", 0x168CE5);
     if (!app.installed && appstore::can_install_app(app))
         shortcut_label(root, 160, "install", 0xB069FF);
     if (appstore::can_reinstall_app(app))
