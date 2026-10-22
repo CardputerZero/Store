@@ -755,8 +755,12 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
 
     const uint32_t state_color = !app.installed ? 0x6E7681 :
         (appstore::can_upgrade_app(app) ? 0xF0B429 : 0x52D05D);
-    box(document, 11, y + 5, 8, 8, state_color, state_color, 0, 4);
-    label(document, model.state, 25, y, 285, 17, store_font(model.state, 14),
+    const lv_font_t *state_font = store_font(model.state, 14);
+    // Centre the dot on the state label's capitals instead of its line box.
+    constexpr int state_dot = 8;
+    box(document, 11, y + glyph_middle(state_font, 'I') - state_dot / 2,
+        state_dot, state_dot, state_color, state_color, 0, state_dot / 2);
+    label(document, model.state, 25, y, 285, 17, state_font,
           app.installed ? 0xE6EDF3 : 0xB1BAC4, LV_LABEL_LONG_DOT);
     y += 23;
     box(document, 10, y, 300, 1, 0x1E2A30, 0x1E2A30, 0);
