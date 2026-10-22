@@ -130,6 +130,7 @@ void CatalogController::apply_summary(const SummaryData &summary)
         sort_apps(session_.catalog.apps(), session_.catalog.sort_rule());
     }
     auto &categories = session_.catalog.categories();
+    categories.erase(std::remove(categories.begin(), categories.end(), "Recommended"), categories.end());
     categories.erase(std::remove(categories.begin(), categories.end(), "Installed"), categories.end());
     const auto &apps = session_.catalog.apps();
     if (std::any_of(apps.begin(), apps.end(), [](const StoreApp &app) { return app.installed; })) {

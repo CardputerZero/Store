@@ -142,11 +142,25 @@ static void registry_cases() {
     CHECK(call({"--set-region","moon"}).rc!=0); CHECK(call({"--set-region","CN"}).rc==0);
     CHECK(has(call({"--registry-config"}),"CONFIG\tCN\tCN\t1")); CHECK(call({"--set-region","default"}).rc==0);
     Result s=call({"--sync"}); CHECK(s.rc==0&&has(s,"SYNC\t1\t0\t0\t2"));
-    Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries")); CHECK(has(sum,"CAT\tUtilities")); CHECK(has(sum,"CAT\tInstalled"));
-    CHECK(has(sum,"APP\tapp-id\tDemo Local\t1.2.0\tUtilities")); CHECK(has(sum,"\tTester\thttps://example.invalid/source\t"));
+    Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries"));
+    CHECK(has(sum,"CAT\tAll\nCAT\tInstalled\nCAT\tUtilities\nCAT\tTools\n"));
+    CHECK(!has(sum,"CAT\tRecommended\n"));
+    CHECK(has(sum,"APP\tapp-id\tDemo Local\t1.2.0\tUtilities\t0\t1\t"));
+    CHECK(has(sum,"APP\tblocked-id\tDemo Local\t1.2.0\tUtilities\t0\t0\t"));
+    CHECK(has(sum,"\tapproved\t1\t")); CHECK(has(sum,"\tpending\t0\t"));
+    CHECK(has(sum,"\tTester\thttps://example.invalid/source\t"));
     CHECK(has(sum,"Localized summary\\nFull detailed description"));
     // Screenshot count, then the permissions bit set: network (1) and camera (4).
     CHECK(has(sum,"\tdemo-package\t0\t5"));
+    const json original_registry = load(root/"registry.json");
+    json legacy_categories = original_registry;
+    legacy_categories["apps"][0]["categories"].push_back("Recommended");
+    save(root/"registry.json", legacy_categories);
+    CHECK(call({"--sync"}).rc==0);
+    Result legacy_summary=call({"--summary"});
+    CHECK(!has(legacy_summary,"CAT\tRecommended\n"));
+    CHECK(has(legacy_summary,"\tUtilities\x1fTools\x1fRecommended\t"));
+    save(root/"registry.json", original_registry);
     CHECK(call({"--clear-registry-cache"}).rc==0);
     setenv("FAKE_DROP_DURING_ASSETS","1",1);
     Result dropped=call({"--sync"});

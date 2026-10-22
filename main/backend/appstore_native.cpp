@@ -1168,9 +1168,10 @@ std::string summary_output()
     if (pending.is_object() && !pending.empty())
         emit(out, "WARN", "Interrupted " + pending.value("action", std::string("package operation")) +
              " pending; retry it from app details");
-    std::vector<std::string> categories = {"Recommended", "All", "Installed"};
+    std::vector<std::string> categories = {"All", "Installed"};
     for (const auto &app : apps) for (const auto &category : string_list(app.value("categories", json::array())))
-        if (std::find(categories.begin(), categories.end(), category) == categories.end()) categories.push_back(category);
+        if (category != "Recommended" &&
+            std::find(categories.begin(), categories.end(), category) == categories.end()) categories.push_back(category);
     for (const auto &category : categories) emit(out, "CAT", category);
     for (const auto &app : apps) {
         const std::vector<std::string> app_categories =
