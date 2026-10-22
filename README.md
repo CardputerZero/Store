@@ -103,7 +103,8 @@ not supported. Existing saved custom sources are normalized to the selected
 built-in server, and the mode and effective server are persisted across restarts.
 
 On the home screen, use `Z/C` (left/right) to change category and `F/X` (up/down)
-to select an app. Installed filters catalog apps by
+to select an app. Categories include All, Installed, and the registry's app
+categories; there is no Recommended category. Installed filters catalog apps by
 their actual package installation state and refreshes after package operations.
 The Installed category is hidden when empty; removing its last app returns the
 selection to All. Long names bounce like the selected APPLaunch title: they
@@ -115,7 +116,10 @@ its original layout: the app icon on the left, name and metadata on the right,
 and plain-text number-key shortcuts along the bottom. Permission icons appear
 only on the app details page.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
-install/reinstall, and `8` or Enter for details. AppStore syncs the registry
+install/reinstall, and `8` or Enter for details. When an installed app has an
+available update, the list indicates it and shortcut `7` becomes **update**,
+opening the upgrade confirmation directly without visiting details.
+AppStore syncs the registry
 automatically when it starts. The startup screen names the current step
 (connecting, updating the catalog, loading artwork, preparing apps) above a
 progress bar with the registry's host, and `Tab` opens settings. If no
@@ -136,16 +140,20 @@ and its sound keeps playing while the redraw waits, so the view keeps up and
 stops when the key is released.
 
 The detail page shows the app name, color-coded version, maintainer, size,
-and update fields, declared permission icons, the install state, the complete
-description, 160 x 85 screenshot previews loaded from the registry, and the
-package and categories. `F/X` scrolls the whole content area with a short
-glide, 24 pixels per press; holding the key scrolls continuously. The system
+and update fields, the install state, and the complete description. Screenshots
+follow the description in vertical rows, one image per row at nearly full screen
+width (300 pixels), with aspect ratio preserved. Package and category information
+follow the screenshots, then a matching PERMISSIONS caption and permission icons.
+`F/X` scrolls the whole content area with a short glide, 24 pixels per press;
+`Z/C` and `K/L` page up and down, and `N/M` jump to the start and end. Holding
+a key scrolls continuously. The system
 bar and bottom actions stay fixed, and status messages appear just above the
 actions at any scroll position. Descriptions wrap without a height limit or
-automatic scrolling. `Z/C` cycles screenshots; apps without screenshots have
-no screenshot area. Detail actions are `4` back,
-`6` install/reinstall, `7` upgrade, and `8` remove, shown when applicable.
-The existing full-screen screenshot viewer remains accessible through `5`.
+automatic scrolling. Apps without screenshots have no screenshot area. Detail actions are `4` back,
+`6` install/reinstall, `7` update, and `8` remove, shown when applicable.
+The existing full-screen screenshot viewer remains accessible through `5`, where
+`Z/C` cycles images. On the details page itself those keys page through the
+content.
 
 Registry entries must provide a Debian package download:
 
