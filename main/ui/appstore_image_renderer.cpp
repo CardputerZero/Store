@@ -16,7 +16,6 @@ namespace appstore_ui {
 void AppStoreImageRenderer::begin_frame()
 {
     sources_.clear();
-    sources_.reserve(12);
 }
 
 const char *AppStoreImageRenderer::retain_source(std::string source)
@@ -80,15 +79,15 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
 #endif
 }
 
-bool AppStoreImageRenderer::draw_thumbnail(lv_obj_t *root, const std::string &path, int x, int y)
+int AppStoreImageRenderer::draw_thumbnail(lv_obj_t *root, const std::string &path, int x, int y)
 {
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
-    if (path.empty()) return false;
-    constexpr int width = 160, height = 85;
+    if (path.empty()) return 0;
+    constexpr int width = 300;
     lv_obj_t *clip = lv_obj_create(root);
     lv_obj_remove_style_all(clip);
     lv_obj_set_pos(clip, x, y);
-    lv_obj_set_size(clip, width, height);
+    lv_obj_set_width(clip, width);
     lv_obj_clear_flag(clip, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(clip, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(clip, LV_OPA_COVER, 0);
@@ -99,15 +98,18 @@ bool AppStoreImageRenderer::draw_thumbnail(lv_obj_t *root, const std::string &pa
     const int image_height = lv_obj_get_height(image);
     if (image_width <= 0 || image_height <= 0) {
         lv_obj_delete(clip);
-        return false;
+        return 0;
     }
-    const int scale = std::max(1, std::min(width * 256 / image_width, height * 256 / image_height));
+    const int scale = std::clamp(width * 256 / image_width, 1, 65535);
+    const int height = std::max(1, (image_height * scale + 255) / 256);
+    lv_obj_set_height(clip, height);
+    lv_image_set_pivot(image, 0, 0);
     lv_image_set_scale(image, static_cast<uint16_t>(scale));
-    lv_obj_set_pos(image, (width - image_width) / 2, (height - image_height) / 2);
-    return true;
+    lv_obj_set_pos(image, (width - image_width * scale / 256) / 2, 0);
+    return height;
 #else
     (void)root; (void)path; (void)x; (void)y;
-    return false;
+    return 0;
 #endif
 }
 

@@ -22,12 +22,6 @@ void render_exit_hint(lv_obj_t *root);
 // Middle of a glyph's ink, measured from the top of the font's line box.
 int glyph_middle(const lv_font_t *font, uint32_t letter);
 
-enum class ArrowKey { Left, Up, Right, Down };
-
-// A small raised button with a solid arrow, for on-screen navigation hints.
-void draw_arrow_key(lv_obj_t *parent, ArrowKey arrow, int center_x, int center_y,
-                    int width = 18, int height = 16);
-
 // One line of text; when it does not fit, it bounces like APPLaunch's
 // selected title. Text that fits is placed according to align.
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
@@ -90,7 +84,7 @@ public:
     void render(const PageRenderContext &context,
                 const AppDetailViewModel &model,
                 DetailMediaState &media, const std::vector<std::string> &screenshots,
-                const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
+                const std::function<int(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                 const std::function<void(const appstore::StoreApp &)> &draw_shortcuts);
     // Glides the drawn page to the media's scroll target without rebuilding
     // it. False when no detail page is drawn.

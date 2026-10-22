@@ -143,25 +143,35 @@ lv_obj_t *edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towa
     return fade;
 }
 
-constexpr int kPermissionSize = 14;
+constexpr int kPermissionDesignSize = 14;
 
-void permission_badge(lv_obj_t *parent, int x, int y, uint32_t color)
+// The marks are drawn on a 14 px grid and scaled to the label's line height.
+int permission_px(int value, int size)
 {
-    constexpr int size = kPermissionSize;
-    lv_obj_t *badge = box(parent, x, y, size, size, color, color, 1, 4, LV_OPA_20);
+    return value * size / kPermissionDesignSize;
+}
+
+int permission_span(int value, int size)
+{
+    return std::max(1, permission_px(value, size));
+}
+
+void permission_badge(lv_obj_t *parent, int x, int y, int size, uint32_t color)
+{
+    lv_obj_t *badge = box(parent, x, y, size, size, color, color, 1,
+                          permission_span(4, size), LV_OPA_20);
     lv_obj_set_style_border_opa(badge, LV_OPA_40, 0);
 }
 
-// Filled mark, so the glyph stays readable inside a 14 px badge.
 void permission_fill(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius = 0)
 {
     box(parent, x, y, w, h, color, color, 0, radius);
 }
 
 // One badge per declared permission, in the registry's order.
-void permission_icons(lv_obj_t *parent, int x, int y, uint32_t permissions)
+void permission_icons(lv_obj_t *parent, int x, int y, int size, uint32_t permissions)
 {
-    constexpr int step = 18;
+    const int step = size + 4;
     constexpr uint32_t color = 0x8B949E;
     using appstore::kPermissionBackground;
     using appstore::kPermissionCamera;
@@ -170,55 +180,83 @@ void permission_icons(lv_obj_t *parent, int x, int y, uint32_t permissions)
     using appstore::kPermissionImu;
     using appstore::kPermissionMicrophone;
     using appstore::kPermissionNetwork;
-    struct Item { uint32_t bit; void (*draw)(lv_obj_t *, int, int); };
+    struct Item { uint32_t bit; void (*draw)(lv_obj_t *, int, int, int); };
     const Item items[] = {
-        {kPermissionNetwork, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 6, y + 2, 2, 3, color);
-            permission_fill(parent, x + 4, y + 4, 6, 2, color);
-            permission_fill(parent, x + 6, y + 6, 2, 6, color);
+        {kPermissionNetwork, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(2, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(4, size),
+                            permission_span(6, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(6, size), color);
         }},
-        {kPermissionMicrophone, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 5, y + 2, 4, 6, color, 2);
-            permission_fill(parent, x + 3, y + 6, 2, 3, color);
-            permission_fill(parent, x + 9, y + 6, 2, 3, color);
-            permission_fill(parent, x + 3, y + 8, 8, 2, color);
-            permission_fill(parent, x + 6, y + 10, 2, 2, color);
+        {kPermissionMicrophone, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(5, size), y + permission_px(2, size),
+                            permission_span(4, size), permission_span(6, size), color,
+                            permission_span(2, size));
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(9, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(8, size),
+                            permission_span(8, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(10, size),
+                            permission_span(2, size), permission_span(2, size), color);
         }},
-        {kPermissionCamera, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 2, y + 5, 10, 6, color, 1);
-            permission_fill(parent, x + 4, y + 3, 3, 2, color);
-            box(parent, x + 5, y + 6, 4, 4, 0x081010, 0x081010, 0, 2);
+        {kPermissionCamera, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(2, size), y + permission_px(5, size),
+                            permission_span(10, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(3, size),
+                            permission_span(3, size), permission_span(2, size), color);
+            box(parent, x + permission_px(5, size), y + permission_px(6, size),
+                permission_span(4, size), permission_span(4, size), 0x081010, 0x081010, 0,
+                permission_span(2, size));
         }},
-        {kPermissionImu, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 3, y + 3, 8, 8, color, 4);
-            box(parent, x + 5, y + 5, 4, 4, 0x081010, 0x081010, 0, 2);
+        {kPermissionImu, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(3, size),
+                            permission_span(8, size), permission_span(8, size), color,
+                            permission_span(4, size));
+            box(parent, x + permission_px(5, size), y + permission_px(5, size),
+                permission_span(4, size), permission_span(4, size), 0x081010, 0x081010, 0,
+                permission_span(2, size));
         }},
-        {kPermissionHardware, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 3, y + 5, 8, 6, color, 1);
-            permission_fill(parent, x + 5, y + 2, 1, 3, color);
-            permission_fill(parent, x + 8, y + 2, 1, 3, color);
+        {kPermissionHardware, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(5, size),
+                            permission_span(8, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(5, size), y + permission_px(2, size),
+                            permission_span(1, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(8, size), y + permission_px(2, size),
+                            permission_span(1, size), permission_span(3, size), color);
         }},
-        {kPermissionBackground, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 3, y + 3, 8, 2, color);
-            permission_fill(parent, x + 6, y + 5, 2, 6, color);
+        {kPermissionBackground, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(3, size),
+                            permission_span(8, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(5, size),
+                            permission_span(2, size), permission_span(6, size), color);
         }},
-        {kPermissionDisplay, [](lv_obj_t *parent, int x, int y) {
-            permission_badge(parent, x, y, color);
-            permission_fill(parent, x + 2, y + 3, 10, 6, color, 1);
-            permission_fill(parent, x + 6, y + 9, 2, 2, color);
-            permission_fill(parent, x + 4, y + 11, 6, 1, color);
+        {kPermissionDisplay, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(2, size), y + permission_px(3, size),
+                            permission_span(10, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(9, size),
+                            permission_span(2, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(11, size),
+                            permission_span(6, size), permission_span(1, size), color);
         }},
     };
     int drawn = 0;
     for (const auto &item : items) {
         if ((permissions & item.bit) == 0) continue;
-        item.draw(parent, x + drawn * step, y);
+        item.draw(parent, x + drawn * step, y, size);
         ++drawn;
     }
 }
@@ -406,28 +444,6 @@ int glyph_middle(const lv_font_t *font, uint32_t letter)
     return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h / 2;
 }
 
-void draw_arrow_key(lv_obj_t *parent, ArrowKey arrow, int center_x, int center_y,
-                    int width, int height)
-{
-    const int x = center_x - width / 2;
-    // Raised look: a lighter top fading to a darker bottom, with a hairline edge.
-    lv_obj_t *button = box(parent, x, center_y - height / 2, width, height, 0x34424D,
-                           0x4E5D69, 1, 5);
-    lv_obj_set_style_bg_grad_color(button, lv_color_hex(0x182127), 0);
-    lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, 0);
-
-    // Solid triangles, in ArrowKey order: left, up, right, down.
-    static const char *const glyphs[] = {"\xE2\x97\x80", "\xE2\x96\xB2", "\xE2\x96\xB6",
-                                         "\xE2\x96\xBC"};
-    static constexpr uint32_t codepoints[] = {0x25C0, 0x25B2, 0x25B6, 0x25BC};
-    const int index = static_cast<int>(arrow);
-    const lv_font_t *font = store_font(glyphs[index], 10);
-    lv_obj_t *glyph = label(parent, glyphs[index], x,
-                            center_y - glyph_middle(font, codepoints[index]), width,
-                            font->line_height, font, 0xFF7A45);
-    lv_obj_set_style_text_align(glyph, LV_TEXT_ALIGN_CENTER, 0);
-}
-
 lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
                         int width, int height, const lv_font_t *font, uint32_t color,
                         HorizontalMarquee &state, const std::string &key,
@@ -599,18 +615,21 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
         label(root, model.empty_message, 137, 76, 178, 40,
               store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        marquee_label(root, model.name, 137, 62, 178, 27, store_font(model.name, 20, true),
+        marquee_label(root, model.name, 137, 58, 178, 27, store_font(model.name, 20, true),
                       0xFFFFFF, title_marquee_, model.name);
-        label(root, model.version, 137, 90, 66, 22,
+        label(root, model.version, 137, 86, 66, 20,
               store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        marquee_label(root, model.author, 207, 90, 108, 22, store_font(model.author, 14),
+        marquee_label(root, model.author, 207, 86, 108, 20, store_font(model.author, 14),
                       0xFFFFFF, author_marquee_, model.name + model.author);
-        label(root, model.size, 137, 110, 68, 22,
+        label(root, model.size, 137, 105, 68, 20,
               store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        label(root, model.updated, 207, 110, 110, 22,
+        label(root, model.updated, 207, 105, 110, 20,
               store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        if (model.update_available)
+            label(root, "UPDATE AVAILABLE", 137, 126, 178, 11,
+                  &lv_font_montserrat_10, 0xF0B429);
     }
-    if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
+    if (model.show_status) scrolling_status_label(root, model.status, 110, 138, 205, 12);
     draw_shortcuts();
 }
 
@@ -690,7 +709,7 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
 
 void AppDetailPage::render(const PageRenderContext &context, const AppDetailViewModel &model,
                            DetailMediaState &media, const std::vector<std::string> &screenshots,
-                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
+                           const std::function<int(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                            const std::function<void(const appstore::StoreApp &)> &draw_shortcuts)
 {
     context.prepare();
@@ -740,10 +759,6 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     label(document, model.state, 25, y, 285, 17, store_font(model.state, 14),
           app.installed ? 0xE6EDF3 : 0xB1BAC4, LV_LABEL_LONG_DOT);
     y += 23;
-    if (model.app.permissions != 0) {
-        permission_icons(document, 10, y, model.app.permissions);
-        y += kPermissionSize + 7;
-    }
     box(document, 10, y, 300, 1, 0x1E2A30, 0x1E2A30, 0);
     y += 7;
     lv_obj_t *description = label(document, model.description, 10, y, 300, LV_SIZE_CONTENT,
@@ -755,26 +770,37 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
 
     media.normalize_images(app.id, static_cast<int>(screenshots.size()));
     if (!screenshots.empty()) {
-        const int index = media.image_index();
         label(document, "SCREENSHOTS", 10, y, 150, 12, &lv_font_montserrat_10, 0x8B949E);
-        if (screenshots.size() > 1) {
-            lv_obj_t *count = label(document, std::to_string(index + 1) + "/" +
-                                    std::to_string(screenshots.size()), 250, y, 60, 12,
-                                    &lv_font_montserrat_10, 0x8B949E);
-            lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
+        y += 16;
+        for (const auto &path : screenshots) {
+            const int height = draw_thumbnail(document, path, 10, y);
+            if (height > 0) {
+                y += height + 10;
+            } else {
+                label(document, "Screenshot unavailable", 10, y, 300, 14,
+                      store_font("", 12), 0x8B949E);
+                y += 24;
+            }
         }
-        const int shot_y = y + 16;
-        // One complete 160 x 85 preview and a glimpse of the next image.
-        draw_thumbnail(document, screenshots[index], 20, shot_y);
-        if (screenshots.size() > 1) {
-            draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
-            draw_arrow_key(document, ArrowKey::Left, 10, shot_y + 42);
-            draw_arrow_key(document, ArrowKey::Right, 311, shot_y + 42);
-        }
-        y = shot_y + 85 + 10;
     }
     y = detail_info_row(document, "PACKAGE", app.package.empty() ? "-" : app.package, y);
     y = detail_info_row(document, "CATEGORY", model.categories, y);
+    if (model.app.permissions != 0) {
+        // Match the info-row captions: same font, colour, and height.
+        const lv_font_t *permission_font = &lv_font_montserrat_10;
+        constexpr uint32_t caption_color = 0x8B949E;
+        constexpr int caption_height = 12;
+        const int size = permission_font->line_height;
+        lv_point_t caption_size = {};
+        lv_text_get_size(&caption_size, "PERMISSIONS", permission_font, 0, 0,
+                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        label(document, "PERMISSIONS", 10, y + 2, caption_size.x, caption_height,
+              permission_font, caption_color);
+        permission_icons(document, std::max(76, 10 + caption_size.x + 6),
+                         y + 2 + glyph_middle(permission_font, 'P') - size / 2,
+                         size, model.app.permissions);
+        y += std::max(caption_height, size) + 4;
+    }
     y += 6;
     lv_obj_set_height(document, y);
     media.normalize_page(app.id, y, viewport_height);
