@@ -5,6 +5,12 @@
  */
 
 #include "json.hpp"
+#ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
+#include "appstore_native.hpp"
+#include <thread>
+namespace appstore { std::string native_test_sync_registry(const std::string &, const std::string &); }
+#endif
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
@@ -89,15 +95,32 @@ static void fixture() {
     text(root/"bin/curl", R"(#!/bin/sh
 set -eu; out=; url=
 while [ $# -gt 0 ]; do case "$1" in -o) out=$2;shift 2;; -A|--connect-timeout|--max-time|-C) shift 2;; -*) shift;; *) url=$1;shift;; esac; done
+printf '%s\n' "$url" >> "$M5APPSTORE_CACHE_DIR/network.log"
 [ "${FAKE_CURL_FAIL:-0}" = 0 ] || exit 22
+case "$url" in
+  https://cardputerzero.github.io/generated/registry.json*) outcome=${FAKE_DEFAULT_OUTCOME:-ok};;
+  https://cardputer-zero-repo.oss-cn-shenzhen.aliyuncs.com/packages/cn/registry.json*) outcome=${FAKE_CN_OUTCOME:-ok};;
+  *) outcome=ok;;
+esac
+case "$outcome" in
+  fail) exit 7;;
+  invalid) printf '{invalid' > "$out"; exit 0;;
+  bad) printf '{"error":"not a catalog"}' > "$out"; exit 0;;
+  wrong-apps) printf '{"apps":{}}' > "$out"; exit 0;;
+  bad-app) printf '{"apps":[{"uuid":42}]}' > "$out"; exit 0;;
+  empty) printf '{"apps":[]}' > "$out"; exit 0;;
+  slow) sleep 4;;
+esac
 [ -z "${FAKE_CURL_SLEEP:-}" ] || sleep "$FAKE_CURL_SLEEP"
 marker="$M5APPSTORE_CACHE_DIR/network-drop-marker"
 if [ "${FAKE_DROP_DURING_ASSETS:-0}" = 1 ] && [ -e "$marker" ]; then exit 7; fi
 case "$url" in
-  *ipinfo.io*) echo "${FAKE_COUNTRY:-US}";;
+  *ipinfo.io*) exit 99;;
   *demo.deb*) cp "$FAKE_DEB" "$out";;
-  *.png*) [ "${FAKE_ASSET_FAIL:-0}" = 0 ] || exit 22; printf 'fake icon' > "$out";;
-  *) cp "$FAKE_REGISTRY" "$out"; if [ "${FAKE_DROP_DURING_ASSETS:-0}" = 1 ]; then touch "$marker"; fi;;
+  *.png*) [ -z "${FAKE_ASSET_SLEEP:-}" ] || sleep "$FAKE_ASSET_SLEEP"
+          [ "${FAKE_ASSET_FAIL:-0}" = 0 ] || exit 22; printf 'fake icon' > "$out";;
+  *) case "$url" in *oss-cn-shenzhen*) cp "${FAKE_CN_REGISTRY:-$FAKE_REGISTRY}" "$out";; *) cp "$FAKE_REGISTRY" "$out";; esac
+     if [ "${FAKE_DROP_DURING_ASSETS:-0}" = 1 ]; then touch "$marker"; fi;;
 esac
 )",0755);
     text(root/"bin/dpkg-query", R"(#!/bin/sh
@@ -127,7 +150,7 @@ static void registry_cases() {
     CHECK(call({"--clear-registry-cache"}).rc==0);
     setenv("FAKE_DROP_DURING_ASSETS","1",1);
     Result dropped=call({"--sync"});
-    CHECK(has(dropped,"SYNC\t0\t0\t1\t2\tNo registry could be reached"));
+    CHECK(has(dropped,"SYNC\t1\t0\t0\t2\tCatalog synced"));
     unsetenv("FAKE_DROP_DURING_ASSETS");
     fs::remove(root/"cache/network-drop-marker");
     CHECK(has(call({"--sync"}),"SYNC\t1\t0\t0\t2"));
@@ -157,18 +180,233 @@ static void registry_cases() {
     CHECK(call({"--sync"}).rc==0);
     CHECK(has(call({"--registries"}),"\tok\t2\t")); setenv("FAKE_CURL_FAIL","1",1);
     CHECK(has(call({"--sync"}),"SYNC\t0\t1\t0\t2")); CHECK(has(call({"--summary"}),"WARN\tRegistry offline")); unsetenv("FAKE_CURL_FAIL");
-    CHECK(call({"--add-registry","example.invalid/registry.json","--registry-name","Extra"}).rc==0);
-    CHECK(call({"--add-registry","example.invalid/registry.json"}).rc!=0); CHECK(call({"--disable-registry","https://example.invalid/registry.json"}).rc==0);
-    CHECK(has(call({"--registry-config"}),"Extra\thttps://example.invalid/registry.json\t0"));
-    CHECK(call({"--enable-registry","https://example.invalid/registry.json"}).rc==0);
-    CHECK(call({"--edit-registry","https://example.invalid/registry.json","https://new.invalid/registry.json","--registry-name","New"}).rc==0);
-    CHECK(call({"--remove-registry","https://new.invalid/registry.json"}).rc==0); CHECK(call({"--remove-registry","https://missing.invalid/x"}).rc!=0);
+    const json original_config = load(root/"state/registries.json");
+    text(root/"cache/network.log", "");
+    for (const char *command : {"--add-registry", "--edit-registry", "--remove-registry", "--enable-registry", "--disable-registry"}) {
+        Result rejected = call({command,"https://custom.invalid/registry.json","https://new.invalid/registry.json"});
+        CHECK(rejected.rc!=0 && has(rejected,"custom registries are not supported"));
+        CHECK(load(root/"state/registries.json")==original_config);
+    }
+    CHECK(fs::file_size(root/"cache/network.log")==0);
     CHECK(call({"--remove-registry","https://cardputerzero.github.io/generated/registry.json"}).rc!=0);
     json cfg={{"region","default"},{"active_region","default"},{"registries",{{{"name","Custom"},{"url","https://custom.invalid/registry.json"},{"enabled",false}}}}};
-    CHECK(has(call({"--replace-registry-config",cfg.dump()}),"CONFIG_REG\t1\tCustom")); CHECK(call({"--replace-registry-config","{"}).rc!=0);
+    Result imported = call({"--replace-registry-config",cfg.dump()});
+    CHECK(imported.rc==0 && has(imported,"CONFIG\tdefault\tdefault\t1") && !has(imported,"Custom"));
+    CHECK(call({"--replace-registry-config","{"}).rc!=0);
     fs::path c=root/"state/registries.json"; chmod(c.c_str(),0640); CHECK(call({"--set-region","CN"}).rc==0); struct stat st{}; CHECK(!stat(c.c_str(),&st)&&(st.st_mode&0777)==0640);
     CHECK(call({"--set-region","default"}).rc==0); CHECK(call({"--sync"}).rc==0);
 }
+static std::vector<std::string> catalog_requests() {
+    std::ifstream input(root/"cache/network.log");
+    std::vector<std::string> requests;
+    std::string line;
+    while (std::getline(input, line)) {
+        CHECK(line.find("ipinfo") == std::string::npos);
+        if (line.find("registry.json") != std::string::npos) requests.push_back(line.substr(0, line.find('?')));
+    }
+    return requests;
+}
+static void source_selection_cases() {
+    const std::string github="https://cardputerzero.github.io/generated/registry.json";
+    const std::string oss="https://cardputer-zero-repo.oss-cn-shenzhen.aliyuncs.com/packages/cn/registry.json";
+    auto sync = [&]() { text(root/"cache/network.log", ""); return call({"--sync"}); };
+    auto selected = [&](const std::string &mode, const std::string &active) {
+        Result result=call({"--registry-config"});
+        CHECK(result.rc==0 && has(result,"CONFIG\t"+mode+"\t"+active+"\t1\n"));
+        CHECK(has(result,"CONFIG_REG\t0\tCardputerZero Hub"));
+        CHECK(has(result,(active=="CN"?oss:github)+"\t1\t1\t"+active));
+        CHECK(!has(result,"CONFIG_REG\t1"));
+    };
+    for (const std::string mode : {"auto", "default", "CN"}) {
+        for (const json &active : {json("CN"), json("default"), json("moon"), json(12), json(nullptr)}) {
+            json legacy={{"region",mode},{"active_region",active},
+                {"registries",json::array({{{"url",github},{"enabled",false},{"name","Spoofed"}},
+                    {{"url",oss},{"builtin",true}},{{"url","https://custom.invalid/x"},{"enabled",true}},42})}};
+            const std::string expected=mode=="auto" ? (active=="CN"?"CN":"default") : mode;
+            save(root/"state/registries.json",legacy);
+            selected(mode,expected);
+            CHECK(call({"--replace-registry-config",legacy.dump()}).rc==0);
+            selected(mode,expected);
+            json normalized=load(root/"state/registries.json");
+            CHECK(normalized["registries"].size()==1 && normalized["registries"][0]["enabled"]==true);
+        }
+    }
+    for (const json &mode : {json("moon"),json(42),json(nullptr)}) {
+        json legacy={{"region",mode},{"active_region","moon"},{"registries",nullptr}};
+        save(root/"state/registries.json",legacy); selected("auto","default");
+        CHECK(call({"--replace-registry-config",legacy.dump()}).rc==0); selected("auto","default");
+    }
+    CHECK(call({"--replace-registry-config","[]"}).rc!=0);
+    json cn_app=app("cn-only","approved"); cn_app["icon"]="";
+    save(root/"cn-registry.json",{{"apps",{cn_app}}});
+    setenv("FAKE_CN_REGISTRY",(root/"cn-registry.json").c_str(),1);
+    CHECK(call({"--set-region","auto"}).rc==0);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t2"));
+    CHECK(catalog_requests()==std::vector<std::string>{github}); selected("auto","default");
+
+    setenv("FAKE_DEFAULT_OUTCOME","fail",1);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t1"));
+    CHECK((catalog_requests()==std::vector<std::string>{github,oss})); selected("auto","CN");
+    Result summary=call({"--summary"}); CHECK(has(summary,"APP\tcn-only") && !has(summary,"APP\tapp-id"));
+    setenv("FAKE_CN_OUTCOME","fail",1);
+    Result offline=sync(); CHECK(offline.rc!=0 && has(offline,"SYNC\t0\t1\t0\t1\tNo registry could be reached"));
+    CHECK((catalog_requests()==std::vector<std::string>{github,oss})); selected("auto","CN");
+    CHECK(has(call({"--summary"}),"WARN\tRegistry offline"));
+    CHECK(call({"--clear-registry-cache"}).rc==0);
+    CHECK(has(sync(),"SYNC\t0\t0\t1\t0\tNo registry could be reached"));
+    CHECK(has(sync(),"SYNC\t0\t0\t1\t0\tNo registry could be reached"));
+    unsetenv("FAKE_CN_OUTCOME");
+    for (const char *bad : {"invalid", "bad", "wrong-apps", "bad-app"}) {
+        setenv("FAKE_DEFAULT_OUTCOME",bad,1);
+        CHECK(has(sync(),"SYNC\t1\t0\t0\t1"));
+        CHECK((catalog_requests()==std::vector<std::string>{github,oss})); selected("auto","CN");
+    }
+    setenv("FAKE_DEFAULT_OUTCOME","empty",1);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t0")); selected("auto","default");
+    CHECK(catalog_requests()==std::vector<std::string>{github});
+    unsetenv("FAKE_DEFAULT_OUTCOME");
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t2")); selected("auto","default");
+    CHECK(catalog_requests()==std::vector<std::string>{github});
+    const json original_catalog=load(root/"registry.json");
+    json malformed_artwork=original_catalog;
+    malformed_artwork["apps"][0]["assets"]=42;
+    malformed_artwork["apps"][0]["icon"]=false;
+    save(root/"registry.json",malformed_artwork);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t2")); selected("auto","default");
+    CHECK(catalog_requests()==std::vector<std::string>{github});
+    save(root/"registry.json",original_catalog);
+
+    CHECK(call({"--set-region","default"}).rc==0);
+    setenv("FAKE_DEFAULT_OUTCOME","fail",1);
+    CHECK(has(sync(),"SYNC\t0\t1\t0\t2"));
+    CHECK(catalog_requests()==std::vector<std::string>{github}); selected("default","default");
+    CHECK(call({"--set-region","CN"}).rc==0);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t1"));
+    CHECK(catalog_requests()==std::vector<std::string>{oss}); selected("CN","CN");
+    unsetenv("FAKE_DEFAULT_OUTCOME"); setenv("FAKE_CN_OUTCOME","bad",1);
+    CHECK(has(sync(),"SYNC\t0\t1\t0\t1"));
+    CHECK(catalog_requests()==std::vector<std::string>{oss}); selected("CN","CN");
+    unsetenv("FAKE_CN_OUTCOME");
+
+    CHECK(call({"--set-region","auto"}).rc==0);
+    setenv("FAKE_DEFAULT_OUTCOME","slow",1); setenv("M5APPSTORE_CATALOG_TIMEOUT","1",1);
+    const auto started=std::chrono::steady_clock::now();
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t1"));
+    CHECK(std::chrono::steady_clock::now()-started < std::chrono::seconds(4));
+    CHECK((catalog_requests()==std::vector<std::string>{github,oss})); selected("auto","CN");
+    unsetenv("FAKE_DEFAULT_OUTCOME"); unsetenv("M5APPSTORE_CATALOG_TIMEOUT");
+    CHECK(call({"--clear-registry-cache"}).rc==0);
+    setenv("FAKE_DROP_DURING_ASSETS","1",1);
+    CHECK(has(sync(),"SYNC\t1\t0\t0\t2"));
+    CHECK(catalog_requests()==std::vector<std::string>{github}); selected("auto","default");
+    unsetenv("FAKE_DROP_DURING_ASSETS"); fs::remove(root/"cache/network-drop-marker");
+    unsetenv("FAKE_CN_REGISTRY");
+    CHECK(call({"--set-region","default"}).rc==0); CHECK(has(sync(),"SYNC\t1\t0\t0\t2"));
+}
+#ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
+static void wait_for_request(const std::string &needle) {
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now()<deadline) {
+        std::ifstream input(root/"cache/network.log");
+        std::string line;
+        while (std::getline(input,line)) if (line.find(needle)!=std::string::npos) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(false);
+}
+static void concurrent_sync_cases() {
+    for (int change=0; change<3; ++change) {
+        CHECK(call({"--set-region","auto"}).rc==0);
+        text(root/"cache/network.log", "");
+        setenv("FAKE_DEFAULT_OUTCOME","slow",1);
+        Result result;
+        std::thread sync([&]() { result.out=appstore::native_backend_capture({"--sync"}, &result.rc); });
+        wait_for_request("github.io");
+        Result busy;
+        busy.out=appstore::native_backend_capture({"--sync"}, &busy.rc);
+        CHECK(busy.rc!=0 && has(busy,"sync already running"));
+        CHECK(call({"--sync"}).rc!=0);
+        if (change==0) {
+            int rc=1;
+            appstore::native_backend_capture({"--set-region","CN"}, &rc); CHECK(rc==0);
+        } else if (change==1) {
+            CHECK(call({"--set-region","CN"}).rc==0);
+        } else {
+            CHECK(call({"--set-region","CN"}).rc==0);
+            CHECK(call({"--set-region","auto"}).rc==0);
+            CHECK(call({"--replace-registry-config", "{\"region\":\"auto\",\"active_region\":\"default\"}"}).rc==0);
+        }
+        sync.join();
+        CHECK(result.rc!=0 && has(result,"superseded"));
+        CHECK(has(call({"--registry-config"}),change==2 ? "CONFIG\tauto\tdefault\t1" : "CONFIG\tCN\tCN\t1"));
+        unsetenv("FAKE_DEFAULT_OUTCOME");
+    }
+    CHECK(call({"--clear-registry-cache"}).rc==0);
+    CHECK(call({"--set-region","CN"}).rc==0);
+    CHECK(call({"--sync"}).rc==0);
+    CHECK(call({"--set-region","auto"}).rc==0);
+    fs::remove_all(root/"cache/icons"); fs::create_directories(root/"cache/icons");
+    text(root/"cache/network.log", ""); setenv("FAKE_ASSET_SLEEP","4",1);
+    Result result;
+    std::thread sync([&]() { result.out=appstore::native_backend_capture({"--sync"}, &result.rc); });
+    wait_for_request(".png");
+    CHECK(has(call({"--registry-config"}),"CONFIG\tauto\tCN\t1"));
+    appstore::native_request_sync_cancel();
+    int busy_rc=0;
+    appstore::native_backend_capture({"--sync"},&busy_rc); CHECK(busy_rc!=0);
+    sync.join();
+    CHECK(result.rc!=0 && has(result,"Sync cancelled"));
+    CHECK(has(call({"--registry-config"}),"CONFIG\tauto\tCN\t1"));
+    CHECK(has(call({"--summary"}),"APP\tapp-id"));
+    CHECK(has(call({"--registries"}),"aliyuncs.com/packages/cn/registry.json\tcached\t2"));
+    unsetenv("FAKE_ASSET_SLEEP");
+    CHECK(call({"--sync"}).rc==0);
+    CHECK(has(call({"--registry-config"}),"CONFIG\tauto\tdefault\t1"));
+}
+static void optional_metadata_cases() {
+    const json index=load(root/"registry.json");
+    for (const json &bad : {json{{"apps", {{{"uuid",42}}}}}, json{{"apps",42}},
+                           json{{"apps", {{{"uuid","extra"},{"featured",42}},{{"uuid","other"}}}}}}) {
+        save(root/"registry.json",bad);
+        json record=json::parse(appstore::native_test_sync_registry("https://metadata.invalid/catalog", index.dump()));
+        CHECK(record["status"]=="ok" && record["index"]==index && record["full"]==json::object());
+        // Feed the persisted result through the normal summary/merge path.
+        CHECK(call({"--set-region","default"}).rc==0);
+        for (const auto &entry : fs::directory_iterator(root/"cache")) {
+            if (entry.path().filename().string().rfind("registry-",0)!=0) continue;
+            json cached=load(entry.path());
+            if (cached.value("url","")=="https://cardputerzero.github.io/generated/registry.json") {
+                record["url"]=cached["url"]; save(entry.path(),record); break;
+            }
+        }
+        Result summary=call({"--summary"}); CHECK(summary.rc==0 && has(summary,"APP\tapp-id"));
+    }
+    save(root/"registry.json",index);
+    CHECK(call({"--sync"}).rc==0);
+}
+static void cancellation_cases() {
+    CHECK(call({"--set-region","auto"}).rc==0);
+    text(root/"cache/network.log", "");
+    setenv("FAKE_DEFAULT_OUTCOME","slow",1);
+    Result result;
+    std::thread sync([&]() { result.out=appstore::native_backend_capture({"--sync"}, &result.rc); });
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while (fs::file_size(root/"cache/network.log")==0 && std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    CHECK(fs::file_size(root/"cache/network.log")>0);
+    const auto cancelled=std::chrono::steady_clock::now();
+    appstore::native_request_sync_cancel();
+    sync.join();
+    CHECK(std::chrono::steady_clock::now()-cancelled < std::chrono::seconds(2));
+    CHECK(result.rc!=0 && has(result,"Sync cancelled"));
+    CHECK(catalog_requests().size()==1);
+    CHECK(appstore::native_backend_capture({"--sync-status"},nullptr).find("cancelled")!=std::string::npos);
+    unsetenv("FAKE_DEFAULT_OUTCOME");
+    int rc=1;
+    CHECK(appstore::native_backend_capture({"--sync"},&rc).find("SYNC\t1\t0\t0\t2")!=std::string::npos && rc==0);
+    CHECK(call({"--set-region","default"}).rc==0);
+}
+#endif
 static void plan_cases() {
     Result p=call({"--plan","demo"}); CHECK(p.rc==0&&has(p,"PLAN\tapp-id\tDemo Local\t1.2.0\t42K")); CHECK(has(p,"lib-one,lib-two"));
     CHECK(call({"--plan","blocked"}).rc!=0); CHECK(call({"--plan","missing"}).rc!=0);
@@ -266,5 +504,11 @@ static void package_cases() {
 }
 int main(int argc,char **argv) {
     CHECK(argc==2); binary=fs::absolute(argv[1]); char t[]="/tmp/appstore-cpp-parity.XXXXXX"; char *p=mkdtemp(t);CHECK(p);root=p;
-    fixture();registry_cases();plan_cases();package_cases();fs::remove_all(root);std::cout<<"native C++ parity tests passed: "<<checks<<" checks\n";
+    fixture();registry_cases();source_selection_cases();
+#ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
+    concurrent_sync_cases();
+    optional_metadata_cases();
+    cancellation_cases();
+#endif
+    plan_cases();package_cases();fs::remove_all(root);std::cout<<"native C++ parity tests passed: "<<checks<<" checks\n";
 }

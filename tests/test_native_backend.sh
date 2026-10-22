@@ -33,7 +33,6 @@ while [ "$#" -gt 0 ]; do
 done
 if [ "${FAKE_CURL_FAIL:-0}" = 1 ]; then exit 22; fi
 case "$url" in
-    *ipinfo.io*) printf 'US\n' ;;
     *demo.deb*) cp "$FAKE_DEB" "$output" ;;
     *) cp "$FAKE_REGISTRY" "$output" ;;
 esac
