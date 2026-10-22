@@ -53,7 +53,6 @@ downloads continue to use curl so interrupted downloads can be resumed safely.
 ./M5CardputerZero-AppStore --registries
 ./M5CardputerZero-AppStore --regions
 ./M5CardputerZero-AppStore --set-region CN
-./M5CardputerZero-AppStore --add-registry https://example.com/generated/registry.json
 ./M5CardputerZero-AppStore --sync
 ./M5CardputerZero-AppStore --plan <app-id>
 ./M5CardputerZero-AppStore --install <app-id>
@@ -92,34 +91,29 @@ Desktop-entry repair is best effort. Failure to find or rewrite an APPLaunch
 desktop entry is reported as `WARNING` after a successful package operation and
 does not change the verified package result.
 
-Multiple registries are supported. The Settings screen uses the startup
-screen's dark look: a centered title, a segmented region control, and the
-selected registry in a grouped card. `F/X` (up/down) moves between the region
-and the registry; `Z/C` (left/right) changes the focused one. Choose Auto,
-Default, or CN. `4` adds a registry; edit, delete, and sync keep their keys. On the
-add and edit screen, `Fn+Z/C` moves the cursor through the focused field and
-Backspace deletes the character before it. Enter moves from Name to URL, from
-URL it confirms the fields and enables the Save tab, and from there it returns
-to Name. `8` saves while Save is active; while a field is open, `8` types.
-Add another registry from the same screen or with
-`--add-registry`; the selected region registry and all enabled custom
-registries are synced and merged into one app list. Apps with the same UUID/share code are de-duplicated, with later registry
-metadata taking precedence. On the home screen, use `Z/C` (left/right) to change
-category and `F/X` (up/down) to select an app. Installed filters catalog apps by
+Settings offers three server modes for the same catalog: **Auto**, **Default**
+(GitHub), and **CN** (Alibaba Cloud OSS). `Z/C` (left/right) changes the mode;
+`4` goes back and `8` syncs after the pending selection is applied.
+The screen retains its dark styling, segmented selector, and read-only active
+server information. Auto tries GitHub first and falls back to OSS if it cannot
+retrieve a usable catalog; explicit Default and CN choices stay pinned to that
+server. Cached data does not count as a successful connectivity check. Only one
+server supplies the catalog at a time; custom registries and their editor are
+not supported. Existing saved custom sources are normalized to the selected
+built-in server, and the mode and effective server are persisted across restarts.
+
+On the home screen, use `Z/C` (left/right) to change category and `F/X` (up/down)
+to select an app. Installed filters catalog apps by
 their actual package installation state and refreshes after package operations.
 The Installed category is hidden when empty; removing its last app returns the
 selection to All. Long names bounce like the selected APPLaunch title: they
 pause for two seconds, scroll horizontally at 40 pixels per second to the end,
 pause again, and scroll back. Status-bar updates keep the current reading
 position, and labels never scroll vertically. In search results only the
-selected name scrolls; the others end with an ellipsis. The selected app's
-version, maintainer, size, and update date are shown in green, orange, blue,
-and violet tags.
-The category row shows the category name between left and right buttons,
-followed by the category's position in the category list (for example
-`2 / 5`). On the same row, the selected app's position in the category (for
-example `1 / 4`) follows up and down buttons, and the catalog size follows the
-Store icon.
+selected name scrolls; the others end with an ellipsis. The home screen keeps
+its original layout: the app icon on the left, name and metadata on the right,
+and plain-text number-key shortcuts along the bottom. Permission icons appear
+only on the app details page.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
 install/reinstall, and `8` or Enter for details. AppStore syncs the registry
 automatically when it starts. The startup screen names the current step
@@ -137,14 +131,12 @@ from any screen, including while the hint is open.
 Keys play the launcher's system sounds: arrows and `F/X/Z/C` play the switch
 sound on every step, including repeats while held, and Enter, Tab, a short
 `Esc`, and shortcut keys play the enter sound. Typing in the share-code and
-search fields is silent. The registry editor sounds too: typed characters,
-Backspace, and switching fields play the enter sound, and `Fn+Z/C` plays the
-switch sound. A held key repeats no faster than the screen redraws, and its sound keeps
-playing while the redraw waits, so the view
-keeps up and stops when the key is released.
+search fields is silent. A held key repeats no faster than the screen redraws,
+and its sound keeps playing while the redraw waits, so the view keeps up and
+stops when the key is released.
 
-The detail page shows the app name, the same color-coded version, maintainer,
-size, and update fields as the home screen, the install state, the complete
+The detail page shows the app name, color-coded version, maintainer, size,
+and update fields, declared permission icons, the install state, the complete
 description, 160 x 85 screenshot previews loaded from the registry, and the
 package and categories. `F/X` scrolls the whole content area with a short
 glide, 24 pixels per press; holding the key scrolls continuously. The system
