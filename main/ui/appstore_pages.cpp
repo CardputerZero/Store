@@ -39,39 +39,6 @@ lv_obj_t *center_label(lv_obj_t *root, const std::string &text, int x, int y, in
     return obj;
 }
 
-void horizontal_label(lv_obj_t *root, const std::string &text, int x, int y,
-                      int width, int height, const lv_font_t *font,
-                      HorizontalMarquee &state, const std::string &key)
-{
-    state.select(key, lv_tick_get());
-    lv_obj_t *viewport = lv_obj_create(root);
-    lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, x, y);
-    lv_obj_set_size(viewport, width, height);
-    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
-    // A content-sized, single-line label never starts LVGL's vertical marquee.
-    lv_obj_t *content = label(viewport, text, 0, 0, LV_SIZE_CONTENT,
-                              font->line_height, font, 0xFFFFFF, LV_LABEL_LONG_CLIP);
-    lv_obj_update_layout(content);
-    const int distance = lv_obj_get_width(content) - width;
-    if (distance <= 0) return;
-    lv_obj_set_x(content, state.offset(lv_tick_get(), distance));
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, content);
-    lv_anim_set_user_data(&animation, &state);
-    lv_anim_set_values(&animation, 0, 1000);
-    lv_anim_set_duration(&animation, 1000);
-    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
-        auto *content = static_cast<lv_obj_t *>(anim->var);
-        auto *state = static_cast<HorizontalMarquee *>(lv_anim_get_user_data(anim));
-        const int distance = lv_obj_get_width(content) - lv_obj_get_width(lv_obj_get_parent(content));
-        lv_obj_set_x(content, state->offset(lv_tick_get(), distance));
-    });
-    lv_anim_start(&animation);
-}
-
 void strong_label(lv_obj_t *root, const std::string &text, int x, int y, int w, int h,
                   const lv_font_t *font, uint32_t color,
                   lv_label_long_mode_t mode = LV_LABEL_LONG_DOT)
@@ -113,22 +80,207 @@ lv_obj_t *box(lv_obj_t *root, int x, int y, int w, int h, uint32_t color,
     return obj;
 }
 
-void screenshot_arrow(lv_obj_t *root, int x, int y, bool right, uint32_t color)
+constexpr uint32_t kVersionColor = 0x7EE787;
+constexpr uint32_t kMaintainerColor = 0xFFA657;
+constexpr uint32_t kSizeColor = 0x79C0FF;
+constexpr uint32_t kDateColor = 0xD2A8FF;
+
+void field_chip(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
 {
-    // Keep navigation visible without font glyphs when packaged arrows cannot load.
-    static const lv_point_precise_t left_points[] = {{9, 1}, {1, 9}, {9, 17}};
-    static const lv_point_precise_t right_points[] = {{1, 1}, {9, 9}, {1, 17}};
-    lv_obj_t *arrow = lv_line_create(root);
-    lv_line_set_points(arrow, right ? right_points : left_points, 3);
-    lv_obj_set_pos(arrow, x, y);
-    lv_obj_set_style_line_color(arrow, lv_color_hex(color), 0);
-    lv_obj_set_style_line_width(arrow, 2, 0);
-    lv_obj_set_style_line_rounded(arrow, true, 0);
+    // Keep the tint faint: the value is drawn in the same color on top.
+    lv_obj_t *chip = box(parent, x, y, w, h, color, color, 1, 5, LV_OPA_20);
+    lv_obj_set_style_border_opa(chip, LV_OPA_40, 0);
 }
 
-void set_progress_scan_x(void *object, int32_t x)
+void field_value(lv_obj_t *parent, const std::string &value, int x, int y, int w,
+                 uint32_t color, HorizontalMarquee *marquee, const std::string &key,
+                 uint16_t size = 14)
 {
-    lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
+    const lv_font_t *font = store_font(value, size);
+    if (marquee)
+        marquee_label(parent, value, x, y, w, font->line_height, font, color, *marquee, key);
+    else
+        label(parent, value, x, y, w, font->line_height, font, color, LV_LABEL_LONG_DOT);
+}
+
+// Top of a glyph's ink, measured from the top of the font's line box.
+int glyph_top(const lv_font_t *font, uint32_t letter)
+{
+    lv_font_glyph_dsc_t glyph = {};
+    if (!lv_font_get_glyph_dsc(font, &glyph, letter, 0)) return 0;
+    return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h;
+}
+
+void detail_field(lv_obj_t *parent, const char *caption, const std::string &value,
+                  int x, int y, int w, uint32_t color, HorizontalMarquee *marquee = nullptr,
+                  const std::string &key = {})
+{
+    constexpr int height = 31, pad = 7;
+    field_chip(parent, x, y, w, height, color);
+    lv_obj_t *title = label(parent, caption, x + pad, y + 2, w - 2 * pad, 12,
+                            &lv_font_montserrat_10, color);
+    lv_obj_set_style_text_opa(title, LV_OPA_70, 0);
+    field_value(parent, value, x + pad, y + 13, w - 2 * pad, color, marquee, key);
+}
+
+int detail_info_row(lv_obj_t *parent, const char *caption, const std::string &value, int y)
+{
+    label(parent, caption, 10, y + 2, 64, 12, &lv_font_montserrat_10, 0x8B949E);
+    lv_obj_t *text = label(parent, value, 76, y, 234, LV_SIZE_CONTENT,
+                           store_font(value, 12), 0xC9D1D9, LV_LABEL_LONG_WRAP);
+    lv_obj_update_layout(text);
+    return y + lv_obj_get_height(text) + 4;
+}
+
+// Content that runs under a fixed edge fades out instead of being cut mid-line.
+lv_obj_t *edge_fade(lv_obj_t *root, int y, int height, uint32_t color, bool towards_bottom)
+{
+    lv_obj_t *fade = box(root, 0, y, 320, height, color, color, 0);
+    lv_obj_set_style_bg_grad_color(fade, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_grad_dir(fade, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_main_opa(fade, towards_bottom ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_grad_opa(fade, towards_bottom ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    return fade;
+}
+
+constexpr int kPermissionDesignSize = 14;
+
+// The marks are drawn on a 14 px grid and scaled to the label's line height.
+int permission_px(int value, int size)
+{
+    return value * size / kPermissionDesignSize;
+}
+
+int permission_span(int value, int size)
+{
+    return std::max(1, permission_px(value, size));
+}
+
+void permission_badge(lv_obj_t *parent, int x, int y, int size, uint32_t color)
+{
+    lv_obj_t *badge = box(parent, x, y, size, size, color, color, 1,
+                          permission_span(4, size), LV_OPA_20);
+    lv_obj_set_style_border_opa(badge, LV_OPA_40, 0);
+}
+
+void permission_fill(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius = 0)
+{
+    box(parent, x, y, w, h, color, color, 0, radius);
+}
+
+// One badge per declared permission, in the registry's order.
+void permission_icons(lv_obj_t *parent, int x, int y, int size, uint32_t permissions)
+{
+    const int step = size + 4;
+    constexpr uint32_t color = 0x8B949E;
+    using appstore::kPermissionBackground;
+    using appstore::kPermissionCamera;
+    using appstore::kPermissionDisplay;
+    using appstore::kPermissionHardware;
+    using appstore::kPermissionImu;
+    using appstore::kPermissionMicrophone;
+    using appstore::kPermissionNetwork;
+    struct Item { uint32_t bit; void (*draw)(lv_obj_t *, int, int, int); };
+    const Item items[] = {
+        {kPermissionNetwork, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(2, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(4, size),
+                            permission_span(6, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(6, size), color);
+        }},
+        {kPermissionMicrophone, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(5, size), y + permission_px(2, size),
+                            permission_span(4, size), permission_span(6, size), color,
+                            permission_span(2, size));
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(9, size), y + permission_px(6, size),
+                            permission_span(2, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(8, size),
+                            permission_span(8, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(10, size),
+                            permission_span(2, size), permission_span(2, size), color);
+        }},
+        {kPermissionCamera, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(2, size), y + permission_px(5, size),
+                            permission_span(10, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(3, size),
+                            permission_span(3, size), permission_span(2, size), color);
+            box(parent, x + permission_px(5, size), y + permission_px(6, size),
+                permission_span(4, size), permission_span(4, size), 0x081010, 0x081010, 0,
+                permission_span(2, size));
+        }},
+        {kPermissionImu, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(3, size),
+                            permission_span(8, size), permission_span(8, size), color,
+                            permission_span(4, size));
+            box(parent, x + permission_px(5, size), y + permission_px(5, size),
+                permission_span(4, size), permission_span(4, size), 0x081010, 0x081010, 0,
+                permission_span(2, size));
+        }},
+        {kPermissionHardware, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(5, size),
+                            permission_span(8, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(5, size), y + permission_px(2, size),
+                            permission_span(1, size), permission_span(3, size), color);
+            permission_fill(parent, x + permission_px(8, size), y + permission_px(2, size),
+                            permission_span(1, size), permission_span(3, size), color);
+        }},
+        {kPermissionBackground, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(3, size), y + permission_px(3, size),
+                            permission_span(8, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(5, size),
+                            permission_span(2, size), permission_span(6, size), color);
+        }},
+        {kPermissionDisplay, [](lv_obj_t *parent, int x, int y, int size) {
+            permission_badge(parent, x, y, size, color);
+            permission_fill(parent, x + permission_px(2, size), y + permission_px(3, size),
+                            permission_span(10, size), permission_span(6, size), color,
+                            permission_span(1, size));
+            permission_fill(parent, x + permission_px(6, size), y + permission_px(9, size),
+                            permission_span(2, size), permission_span(2, size), color);
+            permission_fill(parent, x + permission_px(4, size), y + permission_px(11, size),
+                            permission_span(6, size), permission_span(1, size), color);
+        }},
+    };
+    int drawn = 0;
+    for (const auto &item : items) {
+        if ((permissions & item.bit) == 0) continue;
+        item.draw(parent, x + drawn * step, y, size);
+        ++drawn;
+    }
+}
+
+void glide_page(lv_obj_t *document, DetailMediaState &media, uint32_t now)
+{
+    const uint32_t remaining = media.page_glide_remaining(now);
+    if (remaining == 0) return;
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, document);
+    lv_anim_set_user_data(&animation, &media);
+    lv_anim_set_values(&animation, 0, static_cast<int32_t>(remaining));
+    lv_anim_set_duration(&animation, remaining);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        auto *media = static_cast<DetailMediaState *>(lv_anim_get_user_data(anim));
+        lv_obj_set_y(static_cast<lv_obj_t *>(anim->var), -media->page_scroll_at(lv_tick_get()));
+    });
+    // The animation timer can finish a frame early; land exactly on the target.
+    lv_anim_set_completed_cb(&animation, [](lv_anim_t *anim) {
+        auto *media = static_cast<DetailMediaState *>(lv_anim_get_user_data(anim));
+        lv_obj_set_y(static_cast<lv_obj_t *>(anim->var), -media->page_scroll());
+    });
+    lv_anim_start(&animation);
 }
 
 void modal_backdrop(lv_obj_t *root)
@@ -144,6 +296,130 @@ void modal_backdrop(lv_obj_t *root)
     lv_obj_set_style_blur_quality(obj, LV_BLUR_QUALITY_SPEED, 0);
 }
 
+// The startup screen follows Apple's dark system colors.
+constexpr uint32_t kPageBackground = 0x081010;
+constexpr uint32_t kSecondaryText = 0x8E8E93;
+constexpr uint32_t kSystemBlue = 0x0A84FF;
+constexpr uint32_t kSystemGray = 0x3A3A3C;
+
+namespace startup {
+constexpr int kLogoSize = 44;
+constexpr int kLogoY = 30;
+// The artwork has its own padding, so the visible gap is larger than this.
+constexpr int kTitleCapsY = kLogoY + kLogoSize + 9;
+constexpr int kBarWidth = 184;
+constexpr int kBarHeight = 4;
+constexpr int kBarX = (320 - kBarWidth) / 2;
+constexpr int kBarY = kTitleCapsY + 24;
+constexpr int kCaptionY = kBarY + kBarHeight + 7;
+constexpr int kHintMiddle = 154;
+constexpr int kSweepWidth = 56;
+constexpr uint32_t kSweepMs = 1400;
+constexpr uint32_t kProgressGlideMs = 400;
+} // namespace startup
+
+int text_width(const std::string &text, const lv_font_t *font)
+{
+    lv_point_t size = {};
+    lv_text_get_size(&size, text.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+// A key name in a small keycap, then what the key does, centered on center_x.
+void key_hint(lv_obj_t *root, const char *key, const char *action, int center_x, int middle)
+{
+    const lv_font_t *key_font = store_font(key, 10);
+    const lv_font_t *action_font = store_font(action, 12);
+    constexpr int pad = 5, gap = 6, cap_height = 15;
+    const int cap_width = text_width(key, key_font) + 2 * pad;
+    const int action_width = text_width(action, action_font);
+    const int x = center_x - (cap_width + gap + action_width) / 2;
+    box(root, x, middle - cap_height / 2, cap_width, cap_height, kPageBackground, 0x48484A, 1, 4);
+    label(root, key, x + pad, middle - glyph_middle(key_font, 'b'), cap_width - pad,
+          key_font->line_height, key_font, kSecondaryText);
+    label(root, action, x + cap_width + gap, middle - glyph_middle(action_font, 'S'),
+          action_width + 2, action_font->line_height, action_font, kSecondaryText);
+}
+
+// Indeterminate progress: a short segment sweeping across the track. Timed by
+// the clock, so redrawing the page does not restart it.
+void sweep_progress(lv_obj_t *track)
+{
+    using namespace startup;
+    lv_obj_t *segment = box(track, -kSweepWidth, 0, kSweepWidth, kBarHeight, kSystemBlue,
+                            kSystemBlue, 0, kBarHeight / 2);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, segment);
+    // The callback only runs when this value changes, so let it change every tick.
+    lv_anim_set_values(&animation, 0, static_cast<int32_t>(kSweepMs));
+    lv_anim_set_duration(&animation, kSweepMs);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        // Cubic ease-in-out from off the left edge to off the right edge.
+        const int64_t p = static_cast<int64_t>(lv_tick_get() % kSweepMs) * 1024 / kSweepMs;
+        const int64_t q = 1024 - p;
+        const int64_t eased = p < 512 ? 4 * p * p * p / (1024 * 1024)
+                                      : 1024 - 4 * q * q * q / (1024 * 1024);
+        lv_obj_set_x(static_cast<lv_obj_t *>(anim->var),
+                     static_cast<int32_t>(-kSweepWidth + (kBarWidth + kSweepWidth) * eased / 1024));
+    });
+    lv_anim_start(&animation);
+}
+
+int progress_width(int percent)
+{
+    using namespace startup;
+    if (percent <= 0) return 0;
+    return std::max(kBarHeight, kBarWidth * std::min(percent, 100) / 100);
+}
+
+// An alert in the style of Apple's: title, message, and two buttons, the
+// focused one filled.
+void startup_alert(lv_obj_t *root, const InitializationProgressViewModel &model)
+{
+    modal_backdrop(root);
+    constexpr int width = 256, x = (320 - width) / 2, pad = 14, line_space = 2;
+    constexpr int button_height = 26, button_gap = 8;
+    const lv_font_t *title_font = store_font(model.error_title, 15, true);
+    const lv_font_t *body_font = store_font(model.error_message, 12);
+    lv_point_t body = {};
+    lv_text_get_size(&body, model.error_message.c_str(), body_font, 0, line_space,
+                     width - 2 * pad, LV_TEXT_FLAG_NONE);
+    const int body_height =
+        std::min<int>(body.y, 3 * body_font->line_height + 2 * line_space);
+    const int height =
+        pad + title_font->line_height + 4 + body_height + 14 + button_height + pad;
+    const int y = 20 + (150 - height) / 2;
+    box(root, x, y, width, height, 0x1C1C1E, 0x2C2C2E, 1, 14);
+
+    int row = y + pad;
+    center_strong_label(root, model.error_title, x + pad, row, width - 2 * pad,
+                        title_font->line_height, title_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+    row += title_font->line_height + 4;
+    lv_obj_t *message = center_label(root, model.error_message, x + pad, row, width - 2 * pad,
+                                     body_height, body_font, kSecondaryText, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_line_space(message, line_space, 0);
+    row += body_height + 14;
+
+    const int button_width = (width - 2 * pad - button_gap) / 2;
+    const char *const buttons[] = {"Exit", "Settings"};
+    for (int i = 0; i < 2; ++i) {
+        const bool focused = model.failure_focus == i;
+        const int button_x = x + pad + i * (button_width + button_gap);
+        const uint32_t fill = focused ? kSystemBlue : kSystemGray;
+        box(root, button_x, row, button_width, button_height, fill, fill, 0, 8);
+        const lv_font_t *font = store_font(buttons[i], 13);
+        const int text_y = row + button_height / 2 - glyph_middle(font, 'E');
+        if (focused)
+            center_strong_label(root, buttons[i], button_x, text_y, button_width,
+                                font->line_height, font, 0xFFFFFF);
+        else
+            center_label(root, buttons[i], button_x, text_y, button_width, font->line_height,
+                         font, 0xFFFFFF);
+    }
+}
+
 void scrolling_status_label(lv_obj_t *root, const std::string &text, int x, int y, int w, int h,
                             uint32_t color = 0xCCCC33)
 {
@@ -152,20 +428,69 @@ void scrolling_status_label(lv_obj_t *root, const std::string &text, int x, int 
     lv_obj_set_style_anim_duration(obj, 4000, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
-void radio_option(lv_obj_t *root, int x, int y, const std::string &text,
-                  bool selected, bool focused)
+// A grouped settings card. The focused one is outlined in system blue.
+lv_obj_t *settings_group(lv_obj_t *root, int y, int height, bool focused)
 {
-    const uint32_t border = focused ? 0xCCCC33 : (selected ? 0x58A6FF : 0x6E7681);
-    const uint32_t text_color = selected ? 0xFFFFFF : 0x8B949E;
-    box(root, x, y + 2, 10, 10, 0x0D1117, border, 1, 5);
-    if (selected)
-        box(root, x + 3, y + 5, 4, 4, focused ? 0xCCCC33 : 0x58A6FF,
-            focused ? 0xCCCC33 : 0x58A6FF, 0, 2);
-    label(root, text, x + 15, y, text == "Default" ? 72 : 44, 18, store_font(text, 12), text_color,
-          LV_LABEL_LONG_DOT);
+    return box(root, 12, y, 296, height, 0x1C1C1E, focused ? kSystemBlue : 0x2C2C2E, 1, 12);
 }
 
 } // namespace
+
+int glyph_middle(const lv_font_t *font, uint32_t letter)
+{
+    if (!font) return 0;
+    lv_font_glyph_dsc_t glyph = {};
+    if (!lv_font_get_glyph_dsc(font, &glyph, letter, 0)) return font->line_height / 2;
+    return font->line_height - font->base_line - glyph.ofs_y - glyph.box_h / 2;
+}
+
+lv_obj_t *marquee_label(lv_obj_t *parent, const std::string &text, int x, int y,
+                        int width, int height, const lv_font_t *font, uint32_t color,
+                        HorizontalMarquee &state, const std::string &key,
+                        lv_text_align_t align, bool strong)
+{
+    state.select(key, lv_tick_get());
+    lv_obj_t *viewport = lv_obj_create(parent);
+    lv_obj_remove_style_all(viewport);
+    lv_obj_set_pos(viewport, x, y);
+    lv_obj_set_size(viewport, width, height);
+    lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
+    // A content-sized, single-line label never starts LVGL's vertical marquee.
+    lv_obj_t *content = nullptr;
+    if (strong) {
+        content = lv_obj_create(viewport);
+        lv_obj_remove_style_all(content);
+        lv_obj_set_size(content, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+        label(content, text, 0, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+        label(content, text, 1, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+    } else {
+        content = label(viewport, text, 0, 0, LV_SIZE_CONTENT, font->line_height, font, color);
+    }
+    lv_obj_update_layout(content);
+    const int distance = lv_obj_get_width(content) - width;
+    if (distance <= 0) {
+        if (align == LV_TEXT_ALIGN_CENTER) lv_obj_set_x(content, -distance / 2);
+        else if (align == LV_TEXT_ALIGN_RIGHT) lv_obj_set_x(content, -distance);
+        return viewport;
+    }
+    lv_obj_set_x(content, state.offset(lv_tick_get(), distance));
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, content);
+    lv_anim_set_user_data(&animation, &state);
+    lv_anim_set_values(&animation, 0, 1000);
+    lv_anim_set_duration(&animation, 1000);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+        auto *content = static_cast<lv_obj_t *>(anim->var);
+        auto *state = static_cast<HorizontalMarquee *>(lv_anim_get_user_data(anim));
+        const int distance = lv_obj_get_width(content) - lv_obj_get_width(lv_obj_get_parent(content));
+        lv_obj_set_x(content, state->offset(lv_tick_get(), distance));
+    });
+    lv_anim_start(&animation);
+    return viewport;
+}
 
 void render_exit_hint(lv_obj_t *root)
 {
@@ -195,76 +520,78 @@ void AppStoreUiPage::activate()
     cp0_lvgl_start_app_page(*this);
 }
 
-void InitializationProgressPage::render(const PageRenderContext &context,
-                                        const InitializationProgressViewModel &model)
+void InitializationProgressPage::render(
+    const PageRenderContext &context, const InitializationProgressViewModel &model,
+    const std::function<void(lv_obj_t *, int, int, int)> &draw_logo)
 {
+    using namespace startup;
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x101B2D, 0x101B2D, 0);
-    const bool preparing_catalog = model.phase == "CATALOG";
-    label(root, preparing_catalog ? "Preparing App Catalog" : "Checking Network",
-          8, 24, 190, 15, &lv_font_montserrat_12, 0xFFFFFF);
-    label(root, "Hold ESC", 254, 24, 60, 14, &lv_font_montserrat_10, 0xAECBFA);
-    center_strong_label(root, appstore::upper_ascii(model.phase), 28, 47, 264, 16,
-                        &lv_font_montserrat_12, 0x58A6FF, LV_LABEL_LONG_DOT);
-    label(root, appstore::one_line(model.url, 62), 18, 68, 284, 20,
-          &lv_font_montserrat_10, 0xC9D1D9, LV_LABEL_LONG_DOT);
-    box(root, 20, 94, 280, 15, 0x111923, 0x30363D, 1, 3);
-    for (int i = 0; i < 7; ++i) box(root, 24 + i * 39, 98, 28, 7, 0x162235, 0x162235, 0, 2);
-    if (model.percent >= 0) {
-        const int fill = std::max(5, std::min(272, model.percent * 272 / 100));
-        box(root, 24, 98, fill, 7, 0x2FEC8D, 0x2FEC8D, 0, 2);
-        box(root, std::max(24, std::min(286, 24 + fill - 4)), 96, 8, 11,
-            0xD8FF6A, 0xD8FF6A, 0, 3);
-    } else {
-        lv_obj_t *scan = box(root, 24, 97, 52, 9, 0x2FEC8D, 0xD8FF6A, 1, 3);
-        lv_anim_t animation;
-        lv_anim_init(&animation);
-        lv_anim_set_var(&animation, scan);
-        lv_anim_set_values(&animation, 24, 244);
-        lv_anim_set_duration(&animation, 900);
-        lv_anim_set_playback_duration(&animation, 900);
-        lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
-        lv_anim_set_exec_cb(&animation, set_progress_scan_x);
-        lv_anim_start(&animation);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
+    draw_logo(root, (320 - kLogoSize) / 2, kLogoY, kLogoSize);
+    if (model.failed) {
+        startup_alert(root, model);
+        return;
     }
-    center_label(root, appstore::one_line(model.detail, 52), 18, 119, 284, 14,
-                 &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
-    center_strong_label(root, model.cancel_requested ? "Cancelling..." :
-                        (preparing_catalog ? "Building app list...   Tab: Settings" :
-                         "Tab: Settings   Hold ESC: Exit"), 18, 151, 284, 12,
-                        &lv_font_montserrat_10, 0xCCCC33, LV_LABEL_LONG_DOT);
-    if (!model.failed) return;
 
-    modal_backdrop(root);
-    box(root, 16, 27, 288, 136, 0x111923, 0xF85149, 2, 4);
-    box(root, 16, 27, 288, 24, 0x8B2F34, 0x8B2F34, 0);
-    center_strong_label(root, model.error_title, 32, 32, 256, 15,
-                        &lv_font_montserrat_12, 0xFFFFFF, LV_LABEL_LONG_DOT);
-    center_strong_label(root, appstore::one_line(model.error_message, 38), 30, 61, 260, 15,
-                        &lv_font_montserrat_12, 0xFFD2D2, LV_LABEL_LONG_DOT);
-    int y = 82;
-    for (const auto &line_text : model.error_detail_lines) {
-        center_label(root, appstore::one_line(line_text, 44), 30, y, 260, 12,
-                     &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
-        y += 13;
-        if (y > 95) break;
+    const lv_font_t *title_font = store_font(model.title, 17, true);
+    center_strong_label(root, model.title, 10, kTitleCapsY - glyph_top(title_font, 'C'), 300,
+                        title_font->line_height, title_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+
+    lv_obj_t *track = box(root, kBarX, kBarY, kBarWidth, kBarHeight, kSystemGray, kSystemGray, 0,
+                          kBarHeight / 2);
+    lv_obj_set_style_clip_corner(track, true, 0);
+    const uint32_t now = lv_tick_get();
+    if (model.percent != progress_to_) {
+        // Glide on from the drawn value; a new phase starts from empty.
+        progress_from_ = progress_to_ >= 0 && model.percent > progress_to_ ? progress_at(now) : 0;
+        progress_to_ = model.percent;
+        progress_changed_at_ = now;
     }
-    const bool exit_focused = model.failure_focus == 0;
-    const bool settings_focused = model.failure_focus == 1;
-    box(root, 45, 119, 92, 19, exit_focused ? 0x8B2F34 : 0x4B1F24,
-        exit_focused ? 0xCCCC33 : 0xF85149, exit_focused ? 2 : 1, 2);
-    center_strong_label(root, "EXIT", 49, 123, 84, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
-    box(root, 166, 119, 109, 19, settings_focused ? 0x2EA043 : 0x1A6A2A,
-        settings_focused ? 0xCCCC33 : 0x2EA043, settings_focused ? 2 : 1, 2);
-    center_strong_label(root, "SETTINGS", 170, 123, 101, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
-    center_label(root, "Tab: Settings   Enter confirm", 48, 146, 224, 12,
-                 &lv_font_montserrat_10, 0xCCCC33);
+    if (model.percent < 0) {
+        sweep_progress(track);
+    } else {
+        lv_obj_t *fill = box(track, 0, 0, progress_width(progress_at(now)), kBarHeight,
+                             kSystemBlue, kSystemBlue, 0, kBarHeight / 2);
+        const uint32_t remaining = kProgressGlideMs - std::min(kProgressGlideMs, now - progress_changed_at_);
+        if (remaining > 0) {
+            lv_anim_t animation;
+            lv_anim_init(&animation);
+            lv_anim_set_var(&animation, fill);
+            lv_anim_set_user_data(&animation, this);
+            lv_anim_set_values(&animation, 0, static_cast<int32_t>(remaining));
+            lv_anim_set_duration(&animation, remaining);
+            lv_anim_set_custom_exec_cb(&animation, [](lv_anim_t *anim, int32_t) {
+                auto *page = static_cast<InitializationProgressPage *>(lv_anim_get_user_data(anim));
+                lv_obj_set_width(static_cast<lv_obj_t *>(anim->var),
+                                 progress_width(page->progress_at(lv_tick_get())));
+            });
+            lv_anim_set_completed_cb(&animation, [](lv_anim_t *anim) {
+                auto *page = static_cast<InitializationProgressPage *>(lv_anim_get_user_data(anim));
+                lv_obj_set_width(static_cast<lv_obj_t *>(anim->var), progress_width(page->progress_to_));
+            });
+            lv_anim_start(&animation);
+        }
+    }
+
+    std::string caption = model.source;
+    if (model.percent >= 0)
+        caption += (caption.empty() ? "" : " \xC2\xB7 ") + std::to_string(model.percent) + "%";
+    const lv_font_t *caption_font = store_font(caption, 11);
+    center_label(root, caption, 10, kCaptionY, 300, caption_font->line_height, caption_font,
+                 kSecondaryText, LV_LABEL_LONG_DOT);
+    key_hint(root, "tab", "Settings", 160, kHintMiddle);
+}
+
+int InitializationProgressPage::progress_at(uint32_t now) const
+{
+    const uint32_t elapsed = now - progress_changed_at_;
+    if (progress_to_ < 0 || elapsed >= startup::kProgressGlideMs) return progress_to_;
+    // Quadratic ease-out.
+    const int64_t left = startup::kProgressGlideMs - elapsed;
+    return progress_to_ - static_cast<int>((progress_to_ - progress_from_) * left * left /
+                                           (startup::kProgressGlideMs * startup::kProgressGlideMs));
 }
 
 void CatalogDisplayPage::render(const PageRenderContext &context,
@@ -288,18 +615,21 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
         label(root, model.empty_message, 137, 76, 178, 40,
               store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);
     } else {
-        horizontal_label(root, model.name, 137, 62, 178, 27,
-                         store_font(model.name, 20, true), title_marquee_, model.name);
-        label(root, model.version, 137, 90, 66, 22,
+        marquee_label(root, model.name, 137, 58, 178, 27, store_font(model.name, 20, true),
+                      0xFFFFFF, title_marquee_, model.name);
+        label(root, model.version, 137, 86, 66, 20,
               store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        horizontal_label(root, model.author, 207, 90, 108, 22,
-                         store_font(model.author, 14), author_marquee_, model.name + model.author);
-        label(root, model.size, 137, 110, 68, 22,
+        marquee_label(root, model.author, 207, 86, 108, 20, store_font(model.author, 14),
+                      0xFFFFFF, author_marquee_, model.name + model.author);
+        label(root, model.size, 137, 105, 68, 20,
               store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
-        label(root, model.updated, 207, 110, 110, 22,
+        label(root, model.updated, 207, 105, 110, 20,
               store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+        if (model.update_available)
+            label(root, "UPDATE AVAILABLE", 137, 126, 178, 11,
+                  &lv_font_montserrat_10, 0xF0B429);
     }
-    if (model.show_status) scrolling_status_label(root, model.status, 110, 136, 205, 12);
+    if (model.show_status) scrolling_status_label(root, model.status, 110, 138, 205, 12);
     draw_shortcuts();
 }
 
@@ -355,12 +685,13 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
         box(root, 10, y, 300, 24, item.selected ? 0x142817 : 0x10171D,
             item.selected ? 0x7ED957 : 0x27313A, 1, 3);
         const std::string name = appstore::upper_ascii(item.name);
-        strong_label(root, name, 17, y + 2, 218, 14,
-                     context.font_for_text(name, item.selected ? &lv_font_montserrat_12 :
-                                           &lv_font_montserrat_10),
-                     item.selected ? 0xFFFFFF : 0xB8B8B8,
-                     item.selected && appstore::utf8_display_width(name) > 24
-                         ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+        const lv_font_t *name_font = context.font_for_text(
+            name, item.selected ? &lv_font_montserrat_12 : &lv_font_montserrat_10);
+        if (item.selected)
+            marquee_label(root, name, 17, y + 2, 218, 14, name_font, 0xFFFFFF,
+                          search_marquee_, name, LV_TEXT_ALIGN_LEFT, true);
+        else
+            strong_label(root, name, 17, y + 2, 218, 14, name_font, 0xB8B8B8, LV_LABEL_LONG_DOT);
         label(root, appstore::one_line(item.meta.empty() ? "-" : item.meta, 28),
               17, y + 14, 218, 9, &lv_font_montserrat_10,
               item.selected ? 0x7ED957 : 0x6E7681,
@@ -378,15 +709,14 @@ void CatalogDisplayPage::render_search(const PageRenderContext &context,
 
 void AppDetailPage::render(const PageRenderContext &context, const AppDetailViewModel &model,
                            DetailMediaState &media, const std::vector<std::string> &screenshots,
-                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
-                           const std::function<bool(lv_obj_t *, const std::string &, int, int)> &draw_packaged,
+                           const std::function<int(lv_obj_t *, const std::string &, int, int)> &draw_thumbnail,
                            const std::function<void(const appstore::StoreApp &)> &draw_shortcuts)
 {
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
     constexpr uint32_t background = 0x081010;
-    constexpr uint32_t blue = 0x0099DD;
+    constexpr int viewport_y = 20;
     constexpr int viewport_height = 129;
     box(root, 0, 20, 320, 150, background, background, 0);
     if (!model.has_app) {
@@ -396,75 +726,121 @@ void AppDetailPage::render(const PageRenderContext &context, const AppDetailView
     // Clip the entire detail document between the system bar and fixed action row.
     lv_obj_t *viewport = lv_obj_create(root);
     lv_obj_remove_style_all(viewport);
-    lv_obj_set_pos(viewport, 0, 20);
+    lv_obj_set_pos(viewport, 0, viewport_y);
     lv_obj_set_size(viewport, 320, viewport_height);
     lv_obj_clear_flag(viewport, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *document = lv_obj_create(viewport);
     lv_obj_remove_style_all(document);
     lv_obj_set_width(document, 320);
     lv_obj_clear_flag(document, LV_OBJ_FLAG_SCROLLABLE);
+    document_ = document;
+    // The fades are deleted along with the document when the page is cleared.
+    lv_obj_add_event_cb(document, [](lv_event_t *event) {
+        auto *page = static_cast<AppDetailPage *>(lv_event_get_user_data(event));
+        page->document_ = page->top_fade_ = page->bottom_fade_ = nullptr;
+    }, LV_EVENT_DELETE, this);
 
-    auto text = [&](const std::string &value, int x, int y, int width,
-                    int size, uint32_t color, bool wrap = false) {
-        return label(document, value, x, y, width, wrap ? LV_SIZE_CONTENT : size + 6,
-                     store_font(value, size), color,
-                     wrap ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
-    };
-    box(document, 0, 0, 320, 22, 0x007AC2, 0x007AC2, 0);
-    auto header_text = [&](const std::string &value, int x, int width) {
-        const lv_font_t *font = store_font(value, 14);
-        // Center the line box, with a one-pixel optical correction for the baseline.
-        const int y = std::max(0, (22 - static_cast<int>(font->line_height)) / 2 + 1);
-        return label(document, value, x, y, width, font->line_height,
-                     font, 0xFFFFFF, LV_LABEL_LONG_DOT);
-    };
-    header_text(model.app.name, 16, 120);
-    header_text(model.app.version, 142, 78);
-    auto *author = header_text(model.app.author.empty() ? "-" : model.app.author, 226, 84);
-    lv_obj_set_style_text_align(author, LV_TEXT_ALIGN_RIGHT, 0);
+    const appstore::StoreApp &app = model.app;
+    const lv_font_t *title_font = store_font(app.name, 20, true);
+    marquee_label(document, app.name, 10, 4, 300, title_font->line_height, title_font,
+                  0xFFFFFF, title_marquee_, app.id + app.name);
+    int y = 8 + title_font->line_height;
+    detail_field(document, "VERSION", model.version, 10, y, 146, kVersionColor);
+    detail_field(document, "MAINTAINER", model.author, 164, y, 146, kMaintainerColor,
+                 &author_marquee_, app.id + model.author);
+    y += 34;
+    detail_field(document, "SIZE", app.size, 10, y, 146, kSizeColor);
+    detail_field(document, "UPDATED", model.updated, 164, y, 146, kDateColor);
+    y += 36;
 
-    text("State", 10, 24, 48, 12, blue);
-    text(model.state, 60, 24, 96, 12, 0xFFFFFF);
-    text("Size", 160, 24, 48, 12, blue);
-    text(model.app.size, 210, 24, 105, 12, 0xFFFFFF);
-    text("Updated", 10, 41, 48, 10, blue);
-    text(model.updated, 60, 41, 96, 10, 0xFFFFFF);
-    text("Package", 160, 41, 48, 10, blue);
-    text(model.app.package.empty() ? "-" : model.app.package, 210, 41, 105, 10, 0xFFFFFF);
-    text("Category", 10, 59, 48, 10, blue);
-    auto *categories = text(model.categories, 60, 59, 250, 10, 0xFFFFFF, true);
-    lv_obj_update_layout(categories);
-    const int description_y = std::max(77, 59 + lv_obj_get_height(categories) + 6);
-    text("Desc", 10, description_y, 48, 12, blue);
-    auto *description = text(model.description, 60, description_y, 250, 12, 0xFFFFFF, true);
-    lv_obj_set_style_text_line_space(description, 1, 0);
+    const uint32_t state_color = !app.installed ? 0x6E7681 :
+        (appstore::can_upgrade_app(app) ? 0xF0B429 : 0x52D05D);
+    const lv_font_t *state_font = store_font(model.state, 14);
+    // Centre the dot on the state label's capitals instead of its line box.
+    constexpr int state_dot = 8;
+    box(document, 11, y + glyph_middle(state_font, 'I') - state_dot / 2,
+        state_dot, state_dot, state_color, state_color, 0, state_dot / 2);
+    label(document, model.state, 25, y, 285, 17, state_font,
+          app.installed ? 0xE6EDF3 : 0xB1BAC4, LV_LABEL_LONG_DOT);
+    y += 23;
+    box(document, 10, y, 300, 1, 0x1E2A30, 0x1E2A30, 0);
+    y += 7;
+    lv_obj_t *description = label(document, model.description, 10, y, 300, LV_SIZE_CONTENT,
+                                  store_font(model.description, 12), 0xC9D1D9,
+                                  LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_line_space(description, 2, 0);
     lv_obj_update_layout(description);
-    int bottom = description_y + lv_obj_get_height(description);
-    if (model.show_status) {
-        auto *status = text(model.status, 60, bottom + 6, 250, 12, 0xCCCC33, true);
-        lv_obj_update_layout(status);
-        bottom += 6 + lv_obj_get_height(status);
-    }
-    media.normalize_images(model.app.id, static_cast<int>(screenshots.size()));
+    y += lv_obj_get_height(description) + 10;
+
+    media.normalize_images(app.id, static_cast<int>(screenshots.size()));
     if (!screenshots.empty()) {
-        const int shot_y = bottom + 8;
-        const int index = media.image_index();
-        // One complete 160 x 85 preview and a glimpse of the next image.
-        draw_thumbnail(document, screenshots[index], 20, shot_y);
-        if (screenshots.size() > 1) {
-            draw_thumbnail(document, screenshots[(index + 1) % screenshots.size()], 185, shot_y);
-            if (!draw_packaged(document, "store_arrow_left.png", 5, shot_y + 35))
-                screenshot_arrow(document, 5, shot_y + 33, false, 0xFF6A3D);
-            if (!draw_packaged(document, "store_arrow_right.png", 304, shot_y + 35))
-                screenshot_arrow(document, 304, shot_y + 33, true, 0xFF6A3D);
+        label(document, "SCREENSHOTS", 10, y, 150, 12, &lv_font_montserrat_10, 0x8B949E);
+        y += 16;
+        for (const auto &path : screenshots) {
+            const int height = draw_thumbnail(document, path, 10, y);
+            if (height > 0) {
+                y += height + 10;
+            } else {
+                label(document, "Screenshot unavailable", 10, y, 300, 14,
+                      store_font("", 12), 0x8B949E);
+                y += 24;
+            }
         }
-        bottom = shot_y + 85;
     }
-    bottom += 8;
-    lv_obj_set_height(document, bottom);
-    media.normalize_page(model.app.id, bottom, viewport_height);
-    lv_obj_set_y(document, -media.page_scroll());
-    draw_shortcuts(model.app);
+    y = detail_info_row(document, "PACKAGE", app.package.empty() ? "-" : app.package, y);
+    y = detail_info_row(document, "CATEGORY", model.categories, y);
+    if (model.app.permissions != 0) {
+        // Match the info-row captions: same font, colour, and height.
+        const lv_font_t *permission_font = &lv_font_montserrat_10;
+        constexpr uint32_t caption_color = 0x8B949E;
+        constexpr int caption_height = 12;
+        const int size = permission_font->line_height;
+        lv_point_t caption_size = {};
+        lv_text_get_size(&caption_size, "PERMISSIONS", permission_font, 0, 0,
+                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        label(document, "PERMISSIONS", 10, y + 2, caption_size.x, caption_height,
+              permission_font, caption_color);
+        permission_icons(document, std::max(76, 10 + caption_size.x + 6),
+                         y + 2 + glyph_middle(permission_font, 'P') - size / 2,
+                         size, model.app.permissions);
+        y += std::max(caption_height, size) + 4;
+    }
+    y += 6;
+    lv_obj_set_height(document, y);
+    media.normalize_page(app.id, y, viewport_height);
+    const uint32_t now = lv_tick_get();
+    lv_obj_set_y(document, -media.page_scroll_at(now));
+    glide_page(document, media, now);
+
+    top_fade_ = edge_fade(root, viewport_y, 10, background, false);
+    bottom_fade_ = edge_fade(root, viewport_y + viewport_height - 12, 12, background, true);
+    show_page_edges(media);
+    if (model.show_status) {
+        // Fixed above the actions so feedback is visible at any scroll position.
+        lv_obj_t *toast = box(root, 0, 132, 320, 17, background, 0x2A3A46, 1);
+        lv_obj_set_style_border_side(toast, LV_BORDER_SIDE_TOP, 0);
+        scrolling_status_label(root, model.status, 10, 135, 300, 12);
+    }
+    draw_shortcuts(app);
+}
+
+bool AppDetailPage::scroll(DetailMediaState &media)
+{
+    if (!document_) return false;
+    const uint32_t now = lv_tick_get();
+    lv_anim_delete(document_, nullptr);
+    lv_obj_set_y(document_, -media.page_scroll_at(now));
+    glide_page(document_, media, now);
+    show_page_edges(media);
+    return true;
+}
+
+void AppDetailPage::show_page_edges(const DetailMediaState &media)
+{
+    // Fade only the edges with more of the page beyond them.
+    lv_obj_set_flag(top_fade_, LV_OBJ_FLAG_HIDDEN, media.page_scroll() <= 0);
+    lv_obj_set_flag(bottom_fade_, LV_OBJ_FLAG_HIDDEN,
+                    media.page_scroll() >= media.page_max_scroll());
 }
 
 void AppDetailPage::render_confirmation(const PageRenderContext &context,
@@ -618,81 +994,55 @@ void StoreSettingsPage::render(const PageRenderContext &context,
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, "Registry Settings", 8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
-    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
-    const bool region_focused = model.focus == 0;
-    label(root, "Region", 24, 46, 48, 18, store_font("", 12),
-          region_focused ? 0xCCCC33 : 0x58A6FF);
-    radio_option(root, 76, 46, "Auto", model.region_code == "auto", region_focused);
-    radio_option(root, 142, 46, "Default", model.region_code == "default", region_focused);
-    radio_option(root, 234, 46, "CN", model.region_code == "CN", region_focused);
-    if (!model.has_entry) {
-        label(root, model.loading ? "Loading registries..." : "No registries configured.",
-              24, 82, 272, 36, store_font("", 12), 0xB8B8B8, LV_LABEL_LONG_WRAP);
-    } else {
-        const auto &entry = model.entry;
-        const std::string source = model.region_code == "auto"
-            ? "Source (" + model.active_region + ")" : "Source";
-        label(root, source, 24, 68, 210, 18, store_font(source, 12),
-              model.focus == 1 ? 0xCCCC33 : 0x58A6FF, LV_LABEL_LONG_DOT);
-        center_label(root, std::to_string(model.selected_index + 1) + "/" +
-                     std::to_string(model.entry_count), 248, 68, 48, 18,
-                     store_font("", 12), 0x8B949E, LV_LABEL_LONG_DOT);
-        const uint32_t nav = model.focus == 1 ? 0xFF6A3D : 0x6E7681;
-        label(root, "<", 6, 85, 16, 22, store_font("", 20), nav);
-        label(root, ">", 302, 85, 16, 22, store_font("", 20), nav);
-        horizontal_label(root, entry.name, 24, 86, 194, 20,
-                         store_font(entry.name, 14), source_marquee_, entry.url + entry.name);
-        lv_obj_t *count = label(root, entry.count + " apps", 224, 87, 72, 18,
-                               store_font("", 12), 0xCCCC33, LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_RIGHT, 0);
-        label(root, "URL", 24, 111, 32, 18, store_font("", 12), 0x58A6FF);
-        box(root, 60, 108, 236, 24, 0x111923, 0x2A3A46, 1, 2);
-        const std::string url = entry.builtin ? model.registry_url : entry.url;
-        horizontal_label(root, url, 66, 112, 224, 18,
-                         store_font(url, 12), url_marquee_, url);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
+
+    const lv_font_t *title_font = store_font("Settings", 17, true);
+    center_strong_label(root, "Settings", 12, 26 - glyph_top(title_font, 'S'), 296,
+                        title_font->line_height, title_font, 0xFFFFFF);
+
+    // Region is a segmented control: the chosen segment is filled blue.
+    constexpr int region_y = 48, region_height = 30;
+    settings_group(root, region_y, region_height, true);
+    const char *const regions[] = {"Auto", "Default", "CN"};
+    const char *const codes[] = {"auto", "default", "CN"};
+    constexpr int segment_width = 98;
+    for (int i = 0; i < 3; ++i) {
+        const bool selected = model.region_code == codes[i];
+        const int x = 13 + i * segment_width;
+        if (selected)
+            box(root, x, region_y + 1, segment_width - 2, region_height - 2, kSystemBlue,
+                kSystemBlue, 0, 11);
+        const lv_font_t *font = store_font(regions[i], 13);
+        const int text_y = region_y + region_height / 2 - glyph_middle(font, 'A');
+        if (selected)
+            center_strong_label(root, regions[i], x, text_y, segment_width - 2,
+                                font->line_height, font, 0xFFFFFF);
+        else
+            center_label(root, regions[i], x, text_y, segment_width - 2, font->line_height,
+                         font, kSecondaryText);
     }
+
+    constexpr int source_y = 84, source_height = 46;
+    settings_group(root, source_y, source_height, false);
+    const std::string source = "Active server \xC2\xB7 " +
+        std::string(model.active_region == "CN" ? "CN" : "Default");
+    const lv_font_t *caption_font = store_font(source, 11);
+    label(root, source, 24, source_y + 6, 272, caption_font->line_height, caption_font,
+          kSecondaryText, LV_LABEL_LONG_DOT);
+    const lv_font_t *source_font = store_font(model.registry_url, 13);
+    marquee_label(root, model.registry_url, 24, source_y + 23, 272,
+                  source_font->line_height, source_font, 0xFFFFFF, source_marquee_,
+                  model.registry_url, LV_TEXT_ALIGN_LEFT);
+
     if (!model.status.empty()) {
-        // Keep the full status readable without taking space from the action row.
-        lv_obj_t *status = label(root, model.status, 10, 134, 300, 17,
-                                store_font(model.status, 12),
-                                model.status_is_error ? 0xF85149 : 0xCCCC33,
-                                LV_LABEL_LONG_SCROLL_CIRCULAR);
+        // Keep scrolling status text above the fixed shortcut row.
+        lv_obj_t *status = label(root, model.status, 16, 134, 288, 14,
+                                 store_font(model.status, 11),
+                                 model.status_is_error ? 0xFF453A : kSecondaryText,
+                                 LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_anim_duration(status, 8000, LV_PART_MAIN | LV_STATE_DEFAULT);
     }
-}
-
-void StoreSettingsPage::render_editor(const PageRenderContext &context,
-                                      const RegistryEditorViewModel &model)
-{
-    context.prepare();
-    context.draw_system_bar();
-    lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, model.editing ? "Edit Registry" : "Add Registry",
-          8, 24, 220, 18, store_font("", 14), 0xFFFFFF);
-    label(root, "Esc Back", 250, 25, 64, 18, store_font("", 12), 0xAECBFA);
-
-    label(root, "Name", 10, 46, 50, 18, store_font("", 12),
-          model.focus == 0 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 65, 300, 24, 0x111923,
-        model.focus == 0 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, model.name, 16, 68, 288, 18,
-          store_font(model.name, 12), 0xE6EDF3, LV_LABEL_LONG_DOT);
-
-    label(root, "URL", 10, 92, 50, 18, store_font("", 12),
-          model.focus == 1 ? 0xCCCC33 : 0x58A6FF);
-    box(root, 10, 110, 300, 35, 0x111923,
-        model.focus == 1 ? 0xCCCC33 : 0x2A3A46, 1, 2);
-    label(root, model.url, 16, 113, 288, 28, store_font(model.url, 12),
-          0xE6EDF3, LV_LABEL_LONG_WRAP);
-
-    center_label(root, "Tab Next   BS Delete   Enter Save",
-                 10, 152, 300, 18, store_font("", 12), 0xCCCC33,
-                 LV_LABEL_LONG_DOT);
 }
 
 } // namespace appstore_ui

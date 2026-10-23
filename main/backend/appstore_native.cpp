@@ -317,9 +317,12 @@ int run_bounded(const std::vector<std::string> &args, int timeout_seconds)
     return -1;
 }
 
-int run_cancellable(const std::vector<std::string> &args, const std::atomic<bool> &cancel)
+int run_cancellable(const std::vector<std::string> &args, const std::atomic<bool> &cancel,
+                    int timeout_seconds = 900)
 {
     if (args.empty()) return -1;
+    if (cancel.load()) return 130;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -339,10 +342,18 @@ int run_cancellable(const std::vector<std::string> &args, const std::atomic<bool
         const pid_t waited = waitpid(pid, &status, WNOHANG);
         if (waited == pid) break;
         if (waited < 0 && errno != EINTR) return -1;
-        if (cancel.load()) {
+        if (cancel.load() || std::chrono::steady_clock::now() >= deadline) {
+            const int result = cancel.load() ? 130 : 124;
             kill(-pid, SIGTERM);
-            do { } while (waitpid(pid, &status, 0) < 0 && errno == EINTR);
-            return 130;
+            const auto kill_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            do {
+                const pid_t terminated = waitpid(pid, &status, WNOHANG);
+                if (terminated == pid || (terminated < 0 && errno != EINTR)) return result;
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            } while (std::chrono::steady_clock::now() < kill_deadline);
+            kill(-pid, SIGKILL);
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+            return result;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
@@ -378,14 +389,6 @@ std::pair<int, std::string> capture(const std::vector<std::string> &args, size_t
     return {WIFEXITED(status) ? WEXITSTATUS(status) : -1, output};
 }
 
-std::string normalize_url(std::string value)
-{
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
-    if (!value.empty() && value.find("://") == std::string::npos) value = "https://" + value;
-    return value;
-}
-
 json builtin_registry(const std::string &region)
 {
     bool cn = region == "CN";
@@ -393,34 +396,59 @@ json builtin_registry(const std::string &region)
             {"enabled", true}, {"builtin", true}, {"region", cn ? "CN" : "default"}};
 }
 
-json load_config()
+json normalize_config(const json &config)
 {
-    json config = read_json(config_path());
-    if (!config.is_object()) config = json::object();
-    std::string region = config.value("region", "auto");
+    auto string_setting = [&](const char *key, const char *fallback) -> std::string {
+        return config.is_object() && config.contains(key) && config[key].is_string()
+            ? config[key].get<std::string>() : fallback;
+    };
+    std::string region = string_setting("region", "auto");
     if (region != "auto" && region != "CN" && region != "default") region = "auto";
-    std::string active = config.value("active_region", "default");
-    if (active != "CN") active = "default";
-    json custom = json::array();
-    if (config.contains("registries") && config["registries"].is_array()) {
-        for (const auto &item : config["registries"]) {
-            if (!item.is_object()) continue;
-            std::string url = normalize_url(item.value("url", ""));
-            if (url.empty() || url == kDefaultUrl || url == kCnUrl) continue;
-            json copy = item;
-            copy["url"] = url;
-            copy["name"] = copy.value("name", url);
-            copy["enabled"] = copy.value("enabled", true);
-            custom.push_back(copy);
-        }
-    }
-    config = {{"region", region}, {"active_region", active}, {"registries", json::array()}};
-    config["registries"].push_back(builtin_registry(active));
-    for (auto &item : custom) config["registries"].push_back(item);
-    return config;
+    std::string active = string_setting("active_region", "default");
+    if (active != "CN" && active != "default") active = "default";
+    if (region != "auto") active = region;
+    return {{"region", region}, {"active_region", active},
+            {"registries", json::array({builtin_registry(active)})}};
 }
 
-void save_config(const json &config) { write_json(config_path(), config); }
+json load_config()
+{
+    return normalize_config(read_json(config_path()));
+}
+
+class RegistryLock {
+public:
+    explicit RegistryLock(const char *name, bool exclusive_sync = false)
+    {
+        fd_ = ::open((state_dir() / name).c_str(), O_CREAT | O_RDWR, 0644);
+        if (fd_ < 0) throw std::runtime_error("unable to open registry lock");
+        while (flock(fd_, LOCK_EX | (exclusive_sync ? LOCK_NB : 0)) != 0) {
+            if (errno == EINTR) continue;
+            ::close(fd_);
+            throw std::runtime_error(exclusive_sync ? "catalog sync already running" : "unable to lock registry config");
+        }
+    }
+    ~RegistryLock() { flock(fd_, LOCK_UN); ::close(fd_); }
+    RegistryLock(const RegistryLock &) = delete;
+    RegistryLock &operator=(const RegistryLock &) = delete;
+private:
+    int fd_;
+};
+
+uint64_t config_revision()
+{
+    const json config = read_json(config_path());
+    return config.is_object() && config.contains("_revision") && config["_revision"].is_number_unsigned()
+        ? config["_revision"].get<uint64_t>() : 0;
+}
+
+// Callers hold registry-config.lock, including read/modify/write operations.
+void save_config(const json &config)
+{
+    json saved = config;
+    saved["_revision"] = config_revision() + 1;
+    write_json(config_path(), saved);
+}
 
 fs::path registry_cache(const std::string &url)
 {
@@ -468,14 +496,14 @@ void update_status(bool running, const std::string &url, const std::string &deta
 }
 
 void curl_download(const std::string &url, const fs::path &destination, bool resume = false,
-                   const std::atomic<bool> *cancel = nullptr)
+                   const std::atomic<bool> *cancel = nullptr, int timeout_seconds = 900)
 {
     fs::create_directories(destination.parent_path());
-    std::vector<std::string> args = {"curl", "-fL", "--connect-timeout", "10", "--max-time", "900",
+    std::vector<std::string> args = {"curl", "-fL", "--connect-timeout", "10", "--max-time", std::to_string(timeout_seconds),
                                      "-A", "CardputerZero-AppStore/0.1"};
     if (resume) args.insert(args.end(), {"-C", "-"});
     args.insert(args.end(), {"-o", destination.string(), url});
-    const int result = cancel ? run_cancellable(args, *cancel) : capture(args, 64 * 1024).first;
+    const int result = cancel ? run_cancellable(args, *cancel, timeout_seconds) : capture(args, 64 * 1024).first;
     if (result != 0) {
         if (cancel && cancel->load()) throw std::runtime_error("package operation cancelled");
         throw std::runtime_error("download failed (curl " + std::to_string(result) + "): " + url);
@@ -521,7 +549,7 @@ void configure_proxy(hv::HttpClient &client)
 }
 
 std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
-                                    const std::atomic<bool> *cancel = nullptr)
+                                    const std::atomic<bool> *cancel = nullptr, int timeout_seconds = 30)
 {
     std::vector<bool> succeeded(downloads.size(), false);
     if (downloads.empty()) return succeeded;
@@ -533,14 +561,14 @@ std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
         downloads.begin(), downloads.end(), [](const HttpDownload &download) {
             return download.url.rfind("https://", 0) == 0;
         });
-    if (proxy_configured || https_without_ssl) {
+    if (proxy_configured || https_without_ssl || env_or("M5APPSTORE_HTTP_TRANSPORT", "") == "curl") {
         hv::async::startup(2, 6);
         std::vector<std::future<bool>> futures;
         futures.reserve(downloads.size());
         for (const auto &download : downloads) {
-            futures.push_back(hv::async([download]() {
+            futures.push_back(hv::async([download, cancel, timeout_seconds]() {
                 try {
-                    curl_download(download.url, download.destination);
+                    curl_download(download.url, download.destination, false, cancel, timeout_seconds);
                     return true;
                 } catch (...) {
                     return false;
@@ -548,9 +576,6 @@ std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
             }));
         }
         for (size_t i = 0; i < futures.size(); ++i) {
-            while (futures[i].wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-                if (cancel && cancel->load()) return succeeded;
-            }
             succeeded[i] = futures[i].get();
         }
         return succeeded;
@@ -560,14 +585,14 @@ std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
     state->bodies.resize(downloads.size());
     state->errors.resize(downloads.size());
     hv::HttpClient client;
-    client.setTimeout(30);
+    client.setTimeout(timeout_seconds);
     configure_proxy(client);
 
     for (size_t i = 0; i < downloads.size(); ++i) {
         auto request = std::make_shared<HttpRequest>();
         request->method = HTTP_GET;
         request->url = downloads[i].url;
-        request->timeout = 30;
+        request->timeout = timeout_seconds;
         request->connect_timeout = 10;
         request->headers["User-Agent"] = "CardputerZero-AppStore/0.1";
         request->headers["Cache-Control"] = "no-cache";
@@ -587,9 +612,10 @@ std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
         }
     }
 
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
     std::unique_lock<std::mutex> lock(state->mutex);
     while (state->pending > 0) {
-        if (cancel && cancel->load()) return succeeded;
+        if ((cancel && cancel->load()) || std::chrono::steady_clock::now() >= deadline) return succeeded;
         state->changed.wait_for(lock, std::chrono::milliseconds(50));
     }
     lock.unlock();
@@ -616,18 +642,22 @@ std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
 json request_json(const std::string &url)
 {
     fs::path temp = cache_dir() / ("request-" + sha1_text(url).substr(0, 16) + ".json.tmp");
-    const bool curl_transport = env_or("M5APPSTORE_HTTP_TRANSPORT", "") == "curl";
-    if (curl_transport) {
-        curl_download(url, temp);
-    } else {
-        auto result = hv_download_batch({{url, temp}}, &g_sync_cancel);
-        if (result.empty() || !result[0]) throw std::runtime_error("download failed: " + url);
-    }
-    json value = read_json(temp, nullptr);
     std::error_code ec;
     fs::remove(temp, ec);
-    if (!value.is_object()) throw std::runtime_error("invalid JSON response: " + url);
-    return value;
+    try {
+        if (g_sync_cancel) throw std::runtime_error("sync cancelled");
+        const int timeout = bounded_seconds("M5APPSTORE_CATALOG_TIMEOUT", 15, 30);
+        auto result = hv_download_batch({{url, temp}}, &g_sync_cancel, timeout);
+        if (g_sync_cancel) throw std::runtime_error("sync cancelled");
+        if (result.empty() || !result[0]) throw std::runtime_error("download failed: " + url);
+        json value = read_json(temp, nullptr);
+        fs::remove(temp, ec);
+        if (!value.is_object()) throw std::runtime_error("invalid JSON response: " + url);
+        return value;
+    } catch (...) {
+        fs::remove(temp, ec);
+        throw;
+    }
 }
 
 std::vector<std::string> string_list(const json &value)
@@ -797,7 +827,40 @@ ArtworkTask artwork_task(const std::string &registry_url, const std::string &ref
     return {app, screenshot, {media_url, destination}};
 }
 
-json sync_registry(const json &source)
+bool usable_catalog(const json &catalog)
+{
+    if (!catalog.is_object() || !catalog.contains("apps") || !catalog["apps"].is_array()) return false;
+    for (const auto &app : catalog["apps"]) {
+        if (!app.is_object()) return false;
+        bool identified = false;
+        for (const char *key : {"uuid", "share_code", "id", "title"}) {
+            if (!app.contains(key)) continue;
+            if (!app[key].is_string()) return false;
+            identified = identified || !app[key].get<std::string>().empty();
+        }
+        if (!identified) return false;
+    }
+    return true;
+}
+
+json failed_registry(const json &source, const std::string &error)
+{
+    const std::string url = source.value("url", "");
+    json record = read_json(registry_cache(url));
+    if (record.is_object() && usable_catalog(record.value("index", json()))) {
+        record["status"] = "cached";
+    } else {
+        record = {{"index", json::object()}, {"full", json::object()}, {"status", "error"}};
+    }
+    record["name"] = source.value("name", url);
+    record["url"] = url;
+    record["error"] = error;
+    record["last_attempt_at"] = now_text();
+    write_json(registry_cache(url), record);
+    return record;
+}
+
+json sync_registry(const json &source, const json &index)
 {
     std::string url = source.value("url", "");
     json record = {{"name", source.value("name", url)}, {"url", url}, {"status", "ok"},
@@ -805,13 +868,15 @@ json sync_registry(const json &source)
                    {"icons", json::object()}, {"screenshots", json::object()}};
     try {
         if (g_sync_cancel) throw std::runtime_error("sync cancelled");
-        update_status(true, url, "Downloading registry index", 5, "registry");
-        json index = request_json(url + (url.find('?') == std::string::npos ? "?" : "&") +
-                                 "_cz_appstore_ts=" + std::to_string(std::time(nullptr)));
         record["index"] = index;
         std::string full_url = full_registry_url(url);
-        try { record["full"] = full_url == url ? index : request_json(full_url); }
-        catch (...) { record["full"] = json::object(); }
+        try {
+            json full = full_url == url ? index : request_json(full_url);
+            if (!usable_catalog(full)) throw std::runtime_error("invalid full catalog");
+            record["full"] = std::move(full);
+            // Exercise the same merge/sort rules before retaining optional metadata.
+            merge_apps({record});
+        } catch (...) { record["full"] = json::object(); }
 
         json apps = record["full"].value("apps", json::array());
         if (apps.empty()) apps = index.value("apps", json::array());
@@ -820,8 +885,11 @@ json sync_registry(const json &source)
             if (g_sync_cancel) throw std::runtime_error("sync cancelled");
             const json &app = apps[i];
             if (!app.is_object() || app_key(app).empty()) continue;
-            json assets = app.value("assets", json::object());
-            std::string icon = app.value("icon", assets.value("icon", ""));
+            const json assets = app.contains("assets") && app["assets"].is_object()
+                ? app["assets"] : json::object();
+            std::string icon;
+            if (app.contains("icon") && app["icon"].is_string()) icon = app["icon"].get<std::string>();
+            else if (assets.contains("icon") && assets["icon"].is_string()) icon = assets["icon"].get<std::string>();
             if (!icon.empty()) {
                 ArtworkTask task = artwork_task(url, icon, app_key(app), false);
                 if (fs::exists(task.download.destination) && fs::file_size(task.download.destination) > 0)
@@ -839,16 +907,7 @@ json sync_registry(const json &source)
             std::vector<HttpDownload> downloads;
             for (size_t i = begin; i < end; ++i) downloads.push_back(pending_artwork[i].download);
             const auto results = hv_download_batch(downloads, &g_sync_cancel);
-            const bool batch_failed = std::find(results.begin(), results.end(), false) != results.end();
-            if (batch_failed) {
-                if (g_sync_cancel) throw std::runtime_error("sync cancelled");
-                try {
-                    request_json(url + (url.find('?') == std::string::npos ? "?" : "&") +
-                                 "_cz_appstore_probe=" + std::to_string(std::time(nullptr)));
-                } catch (...) {
-                    throw std::runtime_error("network lost while caching app artwork");
-                }
-            }
+            if (g_sync_cancel) throw std::runtime_error("sync cancelled");
             for (size_t offset = 0; offset < results.size(); ++offset) {
                 if (!results[offset]) continue;
                 const ArtworkTask &task = pending_artwork[begin + offset];
@@ -857,16 +916,11 @@ json sync_registry(const json &source)
         }
         write_json(registry_cache(url), record);
     } catch (const std::exception &error) {
-        json cached = read_json(registry_cache(url));
-        if (cached.is_object() && cached.contains("index")) {
-            record = cached;
-            record["status"] = "cached";
-            record["error"] = error.what();
-        } else {
-            record["status"] = "error";
-            record["error"] = error.what();
-            record["last_attempt_at"] = now_text();
-        }
+        if (g_sync_cancel) return failed_registry(source, "sync cancelled");
+        // Catalog retrieval, not optional metadata/artwork, determines source availability.
+        record["index"] = index;
+        record["full"] = json::object();
+        record["error"] = error.what();
         write_json(registry_cache(url), record);
     }
     return record;
@@ -874,34 +928,64 @@ json sync_registry(const json &source)
 
 std::vector<json> sync_all()
 {
+    RegistryLock sync_lock("registry-sync.lock", true);
     g_sync_cancel = false;
     update_status(true, "", "Loading registry configuration", 0, "config");
-    json config = load_config();
-    if (config.value("region", "auto") == "auto") {
-        auto country = capture({"curl", "-fsSL", "--max-time", "5", "https://ipinfo.io/country"}, 128);
-        std::string code = country.second;
-        while (!code.empty() && std::isspace(static_cast<unsigned char>(code.back()))) code.pop_back();
-        std::string active = code == "CN" ? "CN" : "default";
-        if (active != config.value("active_region", "default")) {
-            config["active_region"] = active;
-            select_region(config, "auto");
+    json config;
+    uint64_t revision;
+    {
+        RegistryLock lock("registry-config.lock");
+        config = load_config();
+        revision = config_revision();
+    }
+    const json original_config = config;
+    const std::string mode = config.value("region", "auto");
+    const std::vector<std::string> candidates = mode == "auto"
+        ? std::vector<std::string>{"default", "CN"} : std::vector<std::string>{mode};
+    json catalog;
+    json source;
+    std::string errors;
+    for (const auto &region : candidates) {
+        if (g_sync_cancel) break;
+        const json candidate = builtin_registry(region);
+        const std::string url = candidate.value("url", "");
+        update_status(true, url, "Downloading registry catalog", 5, "registry");
+        try {
+            json fetched = request_json(url + "?_cz_appstore_ts=" + std::to_string(std::time(nullptr)));
+            if (!usable_catalog(fetched)) throw std::runtime_error("invalid catalog: " + url);
+            catalog = std::move(fetched);
+            source = candidate;
+            config["active_region"] = region;
+            config = normalize_config(config);
+            break;
+        } catch (const std::exception &error) {
+            if (!errors.empty()) errors += "; ";
+            errors += error.what();
+        }
+    }
+    json record;
+    if (source.is_object() && !g_sync_cancel) record = sync_registry(source, catalog);
+    {
+        RegistryLock lock("registry-config.lock");
+        if (config_revision() != revision || load_config() != original_config) {
+            update_status(false, "", "Sync superseded by registry selection", -1, "cancelled");
+            throw std::runtime_error("sync superseded by registry selection");
+        }
+        if (g_sync_cancel || !record.is_object()) {
+            // Cancellation must not abandon the old source for an incomplete replacement.
+            record = failed_registry(original_config["registries"][0],
+                g_sync_cancel ? "sync cancelled" : "No registry could be reached: " + errors);
+        } else if (record.value("status", "") == "ok") {
+            // Publish the source only after its usable catalog has been persisted.
             save_config(config);
         }
     }
-    std::vector<json> records;
-    size_t enabled = 0;
-    for (const auto &item : config["registries"]) if (item.value("enabled", true)) ++enabled;
-    size_t index = 0;
-    for (const auto &item : config["registries"]) {
-        if (!item.value("enabled", true)) continue;
-        update_status(true, item.value("url", ""), "Syncing registry", static_cast<int>(100 * index / std::max<size_t>(1, enabled)), "registry");
-        records.push_back(sync_registry(item));
-        ++index;
-        if (g_sync_cancel) break;
-    }
-    update_status(false, "", g_sync_cancel ? "Sync cancelled" : "Catalog synced",
-                  g_sync_cancel ? -1 : 100, g_sync_cancel ? "cancelled" : "complete");
-    return records;
+    record["cancelled"] = g_sync_cancel.load();
+    const bool ok = record.value("status", "") == "ok" && !g_sync_cancel;
+    update_status(false, "", g_sync_cancel ? "Sync cancelled" :
+                  (ok ? "Catalog synced" : "No registry could be reached"),
+                  ok ? 100 : -1, g_sync_cancel ? "cancelled" : (ok ? "complete" : "error"));
+    return {record};
 }
 
 std::vector<json> load_records(bool sync_if_empty)
@@ -1084,9 +1168,10 @@ std::string summary_output()
     if (pending.is_object() && !pending.empty())
         emit(out, "WARN", "Interrupted " + pending.value("action", std::string("package operation")) +
              " pending; retry it from app details");
-    std::vector<std::string> categories = {"Recommended", "All", "Installed"};
+    std::vector<std::string> categories = {"All", "Installed"};
     for (const auto &app : apps) for (const auto &category : string_list(app.value("categories", json::array())))
-        if (std::find(categories.begin(), categories.end(), category) == categories.end()) categories.push_back(category);
+        if (category != "Recommended" &&
+            std::find(categories.begin(), categories.end(), category) == categories.end()) categories.push_back(category);
     for (const auto &category : categories) emit(out, "CAT", category);
     for (const auto &app : apps) {
         const std::vector<std::string> app_categories =
@@ -1115,13 +1200,25 @@ std::string summary_output()
         const json assets = app.value("assets", json::object());
         const auto screenshot_refs = string_list(assets.contains("screenshots")
             ? assets["screenshots"] : app.value("screenshots", json::array()));
+        const json declared = app.value("permissions", json::object());
+        uint32_t permissions = 0;
+        auto permit = [&](const char *name, uint32_t bit) {
+            if (declared.value(name, false)) permissions |= bit;
+        };
+        permit("network", 1u << 0);
+        permit("microphone", 1u << 1);
+        permit("camera", 1u << 2);
+        permit("imu", 1u << 3);
+        permit("additional_hardware", 1u << 4);
+        permit("background_service", 1u << 5);
+        permit("external_display", 1u << 6);
         emit(out, "APP", app_key(app), localized(app, "title"), app.value("version", ""),
              app_categories.empty() ? "Other" : app_categories.front(),
              installed(app) ? "1" : "0", (app.value("featured", false) || review(app) == "approved") ? "1" : "0",
              field(download.value("size", json("online"))), full_description,
              author(app), source, image_text.str(), dependencies, app.value("share_code", ""), app.value("_registry_name", ""),
              app.value("updated_at", app.value("published_at", "")), review(app), review(app) == "approved" ? "1" : "0", state.version,
-             category_text.str(), package_name(app), screenshot_refs.size());
+             category_text.str(), package_name(app), screenshot_refs.size(), permissions);
     }
     return out.str();
 }
@@ -1160,14 +1257,8 @@ std::string regions_output()
 
 void select_region(json &config, const std::string &region)
 {
-    std::string selected = region == "CN" ? "CN" : (region == "auto" ? "auto" : "default");
-    std::string active = selected == "auto" ? config.value("active_region", "default") : selected;
-    if (active != "CN") active = "default";
-    json custom = json::array();
-    for (const auto &item : config["registries"]) if (!item.value("builtin", false)) custom.push_back(item);
-    config = {{"region", selected}, {"active_region", active}, {"registries", json::array()}};
-    config["registries"].push_back(builtin_registry(active));
-    for (const auto &item : custom) config["registries"].push_back(item);
+    config["region"] = region;
+    config = normalize_config(config);
 }
 
 std::string config_output(const json &config)
@@ -2185,55 +2276,35 @@ std::string dispatch(const std::vector<std::string> &args, int &rc)
     if (command == "--sync") {
         auto records = sync_all(); size_t ok = 0, cached = 0, failed = 0, apps = 0;
         for (const auto &record : records) { std::string status = record.value("status", ""); if (status == "ok") ++ok; else if (status == "cached") ++cached; else ++failed; apps += record.value("index", json::object()).value("apps", json::array()).size(); }
-        const std::string message = g_sync_cancel ? "Sync cancelled" :
+        const bool cancelled = !records.empty() && records[0].value("cancelled", false);
+        const std::string message = cancelled ? "Sync cancelled" :
             (ok == 0 ? "No registry could be reached" : "Catalog synced");
         emit(out, "SYNC", ok, cached, failed, apps, message);
-        if (g_sync_cancel) rc = 1;
+        if (cancelled || ok == 0) rc = 1;
         return out.str();
     }
     if (command == "--registry-config") return config_output(load_config());
     if (command == "--replace-registry-config" && args.size() >= 2) {
         try {
-            json incoming = json::parse(args[1]); json config = load_config();
-            config["region"] = incoming.value("region", "auto"); config["active_region"] = incoming.value("active_region", "default");
-            config["registries"] = incoming.value("registries", json::array()); select_region(config, config.value("region", "auto"));
+            json incoming = json::parse(args[1]);
+            if (!incoming.is_object()) throw std::runtime_error("expected an object");
+            json config = normalize_config(incoming);
+            RegistryLock lock("registry-config.lock");
             save_config(config); return config_output(config);
         } catch (const std::exception &error) { emit(out, "ERROR", std::string("invalid registry config: ") + error.what()); rc = 1; return out.str(); }
     }
     if (command == "--set-region" && args.size() >= 2) {
         if (args[1] != "auto" && args[1] != "default" && args[1] != "CN") { emit(out, "ERROR", "unknown region", args[1]); rc = 1; return out.str(); }
+        RegistryLock lock("registry-config.lock");
         json config = load_config(); select_region(config, args[1]); save_config(config);
         emit(out, "REGION", config.value("region", "auto"), args[1] == "CN" ? "China" : (args[1] == "auto" ? "Auto" : "Default"),
              config.value("active_region", "default") == "CN" ? kCnUrl : kDefaultUrl, config.value("active_region", "default")); return out.str();
     }
-    if (command == "--add-registry" && args.size() >= 2) {
-        json config = load_config(); std::string url = normalize_url(args[1]); std::string name = url;
-        for (size_t i = 2; i + 1 < args.size(); ++i) if (args[i] == "--registry-name") name = args[i + 1];
-        if (url == kDefaultUrl || url == kCnUrl) { emit(out, "ERROR", "use region selection for built-in registries", url); rc = 1; return out.str(); }
-        for (const auto &item : config["registries"]) if (item.value("url", "") == url) { emit(out, "ERROR", "registry already exists", url); rc = 1; return out.str(); }
-        json record = sync_registry({{"name", name}, {"url", url}, {"enabled", true}});
-        if (record.value("status", "") == "error") { emit(out, "ERROR", record.value("error", "registry unavailable"), url); rc = 1; return out.str(); }
-        config["registries"].push_back({{"name", name}, {"url", url}, {"enabled", true}}); save_config(config);
-        emit(out, "REGISTRY", "ADDED", url, record.value("status", ""), record.value("index", json::object()).value("apps", json::array()).size(), name); return out.str();
-    }
-    if ((command == "--remove-registry" || command == "--enable-registry" || command == "--disable-registry") && args.size() >= 2) {
-        json config = load_config(); std::string url = normalize_url(args[1]); bool found = false; json entries = json::array();
-        for (auto item : config["registries"]) {
-            if (item.value("url", "") == url) { found = true; if (item.value("builtin", false)) { emit(out, "ERROR", "registry is managed by region selection", url); rc = 1; return out.str(); }
-                if (command == "--remove-registry") continue; item["enabled"] = command == "--enable-registry"; }
-            entries.push_back(item);
-        }
-        if (!found) { emit(out, "ERROR", "registry not found", url); rc = 1; return out.str(); }
-        config["registries"] = entries; save_config(config); emit(out, "REGISTRY", command == "--remove-registry" ? "REMOVED" : (command == "--enable-registry" ? "ENABLED" : "DISABLED"), url); return out.str();
-    }
-    if (command == "--edit-registry" && args.size() >= 3) {
-        std::string old_url = normalize_url(args[1]), new_url = normalize_url(args[2]), name = new_url; json config = load_config(); bool found = false;
-        for (size_t i = 3; i + 1 < args.size(); ++i) if (args[i] == "--registry-name") name = args[i + 1];
-        json record = sync_registry({{"name", name}, {"url", new_url}, {"enabled", true}});
-        if (record.value("status", "") == "error") { emit(out, "ERROR", record.value("error", "registry unavailable"), new_url); rc = 1; return out.str(); }
-        for (auto &item : config["registries"]) if (item.value("url", "") == old_url && !item.value("builtin", false)) { item["url"] = new_url; item["name"] = name; found = true; }
-        if (!found) { emit(out, "ERROR", "registry not found", old_url); rc = 1; return out.str(); }
-        save_config(config); emit(out, "REGISTRY", "UPDATED", old_url, new_url, record.value("status", ""), record.value("index", json::object()).value("apps", json::array()).size(), name); return out.str();
+    if (command == "--add-registry" || command == "--edit-registry" ||
+        command == "--remove-registry" || command == "--enable-registry" || command == "--disable-registry") {
+        emit(out, "ERROR", "custom registries are not supported; use region selection");
+        rc = 1;
+        return out.str();
     }
     if (command == "--plan" && args.size() >= 2) return plan_output(args[1], rc);
     if (command == "--repair-package-transaction" && args.size() >= 2)
@@ -2248,6 +2319,14 @@ std::string dispatch(const std::vector<std::string> &args, int &rc)
 }
 
 }  // namespace
+
+#ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
+std::string native_test_sync_registry(const std::string &url, const std::string &index)
+{
+    g_sync_cancel = false;
+    return sync_registry({{"url", url}, {"name", "Test catalog"}}, json::parse(index)).dump();
+}
+#endif
 
 void native_request_sync_cancel() { g_sync_cancel = true; }
 void native_request_package_cancel() { g_package_cancel = true; }

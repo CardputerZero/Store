@@ -40,7 +40,7 @@ public:
     appstore::SortRule sort_rule() const { return sort_rule_; }
 
 private:
-    std::vector<std::string> categories_{"Recommended", "All"};
+    std::vector<std::string> categories_{"All"};
     std::vector<appstore::StoreApp> apps_;
     std::vector<int> visible_;
     int category_index_ = 0;

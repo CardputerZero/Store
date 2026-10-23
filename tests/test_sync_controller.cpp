@@ -107,7 +107,7 @@ int main()
     assert(session.sync.status.percent == -1);
     assert(session.status.value() == "Catalog synced");
     assert(summaries == 1 && last_summary_purpose == SummaryPurpose::StartupCatalog &&
-           registry_refreshes == 0);
+           registry_refreshes == 1);
 
     session.sync.startup_active = false;
     session.screen = Screen::Home;
@@ -115,7 +115,7 @@ int main()
     controller.start(true, 500);
     wait_for(2);
     controller.poll(600, 200);
-    assert(summaries == 2 && registry_refreshes == 1);
+    assert(summaries == 2 && registry_refreshes == 2);
 
     controller.initialize_startup("https://registry.example");
     controller.start(false, 700);
@@ -134,7 +134,7 @@ int main()
     controller.poll(1000, 200);
     assert(session.screen == Screen::StartupSync);
     assert(session.sync.startup_failed && session.sync.startup_active);
-    assert(session.error.title == "NETWORK FAILED");
+    assert(session.error.title == "Cannot Connect to Store");
     assert(summaries == 2);
     session.sync.startup_active = false;
     session.screen = Screen::Home;
@@ -145,9 +145,10 @@ int main()
     controller.poll(1200, 200);
     assert(session.screen == Screen::StartupSync && session.sync.startup_active &&
            session.sync.startup_failed);
-    assert(session.error.detail == "Wi-Fi unavailable");
+    assert(session.error.message == "Wi-Fi unavailable" && session.error.detail.empty());
     assert(summaries == 2);
 
+    assert(registry_refreshes == 5);
     assert(controller.cancel() && cancels == 1);
     std::cout << "sync controller tests passed\n";
 }

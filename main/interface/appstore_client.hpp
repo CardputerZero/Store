@@ -11,6 +11,7 @@
 #include "appstore_protocol.hpp"
 #include "appstore_text.hpp"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,20 @@ struct StoreApp {
     bool installable = false;
     std::string package;
     int screenshot_count = -1;
+    // Bit set from the registry permissions object. Zero when the registry
+    // does not declare permissions, so older summaries stay readable.
+    uint32_t permissions = 0;
+};
+
+// Order matches the app detail permission icon row.
+enum AppPermission : uint32_t {
+    kPermissionNetwork = 1u << 0,
+    kPermissionMicrophone = 1u << 1,
+    kPermissionCamera = 1u << 2,
+    kPermissionImu = 1u << 3,
+    kPermissionHardware = 1u << 4,
+    kPermissionBackground = 1u << 5,
+    kPermissionDisplay = 1u << 6,
 };
 
 struct RegistryEntry {

@@ -54,13 +54,15 @@ int main()
     };
     appstore::SummaryData summary;
     summary.saw_meta = true;
-    summary.categories = {"Recommended", "All", "Tools"};
+    summary.categories = {"All", "Tools"};
     summary.apps = {make_app("b-id", "BBBB", "Beta", "Tools"),
                     make_app("a-id", "AAAA", "Alpha", "Tools"),
                     make_app("c-id", "CCCC", "Gamma", "Games")};
     summary.repo_status = "3 apps";
     controller.apply_summary(summary);
     assert(session.catalog.current_category_name() == "All");
+    assert((session.catalog.categories() == std::vector<std::string>{"All", "Tools"}));
+    assert(!session.catalog.select_category_by_name("Recommended"));
     assert(session.catalog.visible().size() == 3);
     assert(controller.open_detail() && session.screen == Screen::Detail);
 
@@ -72,7 +74,9 @@ int main()
     assert(session.catalog.current_category_name() == "Tools");
     assert(!session.catalog.select_category_by_name("Installed"));
     controller.select_adjacent_category(1);
-    assert(session.catalog.current_category_name() == "Recommended");
+    assert(session.catalog.current_category_name() == "All");
+    controller.select_adjacent_category(-1);
+    assert(session.catalog.current_category_name() == "Tools");
 
     session.catalog.select_category_by_name("All");
     session.catalog.rebuild_visible();
@@ -105,6 +109,7 @@ int main()
 
     summary.apps[1].installed = true;
     controller.apply_summary(summary);
+    assert((session.catalog.categories() == std::vector<std::string>{"All", "Installed", "Tools"}));
     assert(session.catalog.select_category_by_name("Installed"));
     session.catalog.rebuild_visible();
     assert(session.catalog.current_category_name() == "Installed");
@@ -128,6 +133,22 @@ int main()
     summary.apps[1].installed = false;
     controller.apply_summary(summary);
     assert(session.catalog.current_category_name() == "Tools");
+
+    // Older summaries must not restore the retired synthetic category.
+    summary.categories = {"Recommended", "All", "Installed", "Tools", "Recommended"};
+    controller.apply_summary(summary);
+    assert((session.catalog.categories() == std::vector<std::string>{"All", "Tools"}));
+    assert(session.catalog.current_category_name() == "Tools");
+    assert(!session.catalog.select_category_by_name("Recommended"));
+    assert(session.catalog.apps()[0].recommended);
+
+    session.catalog.categories().insert(session.catalog.categories().begin(), "Recommended");
+    assert(session.catalog.select_category_by_name("Recommended"));
+    summary.categories.clear();
+    controller.apply_summary(summary);
+    assert(session.catalog.current_category_name() == "All");
+    assert((session.catalog.categories() == std::vector<std::string>{"All", "Tools"}));
+    assert(session.catalog.visible().size() == 3);
 
     std::cout << "catalog controller tests passed\n";
 }

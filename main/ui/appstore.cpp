@@ -66,7 +66,6 @@ const char *screen_name(Screen screen)
         case Screen::Progress: return "Progress";
         case Screen::ErrorDialog: return "ErrorDialog";
         case Screen::Registry: return "Registry";
-        case Screen::RegistryEdit: return "RegistryEdit";
         case Screen::ShareCode: return "ShareCode";
         case Screen::Search: return "Search";
         case Screen::Screenshots: return "Screenshots";
@@ -109,6 +108,25 @@ void request_quit()
 {
     g_runtime.exit.request();
     cp0_lvgl_wake();
+}
+
+// The launcher's system sounds: slot 1 when it switches apps, slot 2 when it
+// launches one.
+void play_key_sound(KeySound sound) noexcept
+{
+    try {
+        cp0_signal_audio_api({"SystemSoundPlay", sound == KeySound::Move ? "1" : "2"},
+                             nullptr);
+    } catch (...) {
+    }
+}
+
+bool display_refresh_pending()
+{
+    lv_display_t *display = lv_display_get_default();
+    lv_timer_t *refresh = display ? lv_display_get_refr_timer(display) : nullptr;
+    // The refresh timer sleeps until something on screen changes.
+    return refresh && !lv_timer_get_paused(refresh);
 }
 
 void handle_signal(int)
@@ -181,13 +199,15 @@ void AppStoreApp::draw_system_bar()
         lv_tick_elaps(g_runtime.session.sync.visible_until_tick) < 1000) {
         sync_active = true;
     }
+    // The startup screen shows the sync itself.
+    if (g_runtime.session.screen == Screen::StartupSync) sync_active = false;
     if (active_page_) {
         auto *sync_component = dynamic_cast<AppStoreSyncTopBarComponent *>(
             active_page_->top_bar_component("appstore.sync"));
         if (sync_component) sync_component->set_sync_active(sync_active, lv_tick_get());
     }
     const uint32_t elapsed = lv_tick_elaps(start);
-    if (elapsed >= 15 || g_runtime.session.screen == Screen::Registry || g_runtime.session.screen == Screen::RegistryEdit) {
+    if (elapsed >= 15 || g_runtime.session.screen == Screen::Registry) {
         app_tracef("draw_system_bar elapsed=%ums status=%ums screen=%s",
                    elapsed, status_ms, screen_name(g_runtime.session.screen));
     }
@@ -210,7 +230,7 @@ void AppStoreApp::refresh()
     const bool screenshots = poll_screenshots();
     const uint32_t elapsed = lv_tick_elaps(start);
     if (elapsed >= 20 || result.any() || screenshots ||
-        g_runtime.session.screen == Screen::Registry || g_runtime.session.screen == Screen::RegistryEdit) {
+        g_runtime.session.screen == Screen::Registry) {
         app_tracef("refresh_timer elapsed=%ums screen=%s region_debounce=%d registry_refresh=%d registry_op=%d plan=%d summary=%d status_timeout=%d top_status=%d screenshots=%d",
                    elapsed, screen_name(g_runtime.session.screen), result.region_debounce ? 1 : 0,
                    result.registry_refresh ? 1 : 0, result.registry_operation ? 1 : 0,
@@ -265,8 +285,7 @@ void AppStoreApp::navigate_back()
             g_runtime.session.screen = Screen::Home;
             break;
         case Screen::Confirm:
-            g_runtime.session.screen = Screen::Detail;
-            g_runtime.session.confirmation.reset();
+            detail_actions_.cancel_confirmation();
             break;
         case Screen::Progress:
             if (g_runtime.package_jobs.state().running || g_runtime.package_jobs.state().pending_start) {
@@ -299,9 +318,6 @@ void AppStoreApp::navigate_back()
             g_runtime.session.screen = g_runtime.session.sync.startup_active
                 ? Screen::StartupSync : Screen::Home;
             break;
-        case Screen::RegistryEdit:
-            g_runtime.session.screen = Screen::Registry;
-            break;
         case Screen::ShareCode:
             g_runtime.session.screen = Screen::Home;
             break;
@@ -321,16 +337,11 @@ void AppStoreApp::poll_sync()
 
 void AppStoreApp::open_registry_screen()
 {
-    app_tracef("open_registry_screen begin from=%s entries=%zu loading=%d refresh_running=%d",
-               screen_name(g_runtime.session.screen), g_runtime.session.registry.entries().size(), g_runtime.session.registry_loading ? 1 : 0,
+    app_tracef("open_registry_screen begin from=%s loading=%d refresh_running=%d",
+               screen_name(g_runtime.session.screen), g_runtime.session.registry_loading ? 1 : 0,
                runtime_.task_service.registry_refresh_running() ? 1 : 0);
     registry_actions_.open();
     app_tracef("open_registry_screen end screen=%s", screen_name(g_runtime.session.screen));
-}
-
-void AppStoreApp::open_registry_add_screen()
-{
-    registry_actions_.open_add();
 }
 
 void AppStoreApp::execute_detail_confirmation()
@@ -364,12 +375,22 @@ void AppStoreApp::repair_package_error()
 
 void AppStoreApp::handle_key(const AppStoreKeyEvent &key)
 {
+    // Keys are handled back to back while more are queued, so repeats that
+    // come faster than a screen rebuilds would hold off drawing until the key
+    // is released. Skip repeats until the last key's change is on screen.
+    // A held key still clicks while its redraw waits, so the feedback keeps up
+    // with the repeat instead of going silent.
+    if (key.repeated && key.code != KEY_ESC && key_frame_pending_) {
+        input_controller_.play_feedback(key);
+        return;
+    }
     const uint32_t key_start = lv_tick_get();
     const Screen before_screen = g_runtime.session.screen;
     app_tracef("handle_key begin screen=%s code=%u ch=%d release=%d repeat=%d",
                screen_name(before_screen), key.code, static_cast<int>(key.ch),
                key.release ? 1 : 0, key.repeated ? 1 : 0);
     input_controller_.handle(key, key_start);
+    key_frame_pending_ = display_refresh_pending();
     app_tracef("handle_key end elapsed=%ums before=%s after=%s code=%u ch=%d",
                lv_tick_elaps(key_start), screen_name(before_screen), screen_name(g_runtime.session.screen),
                key.code, static_cast<int>(key.ch));
@@ -406,7 +427,7 @@ AppStoreApp::AppStoreApp()
            [this]() { runtime_.registry_persistence.save_backend(); },
            [this]() { request_coordinator_.request_summary(); },
            [this](bool refresh) { sync_actions_.start(refresh, lv_tick_get()); },
-           []() { stop_backend_service(); }}),
+           []() { cancel_sync(); }}),
       catalog_actions_(runtime_.session, share_code_,
                        [this]() { request_coordinator_.request_summary(); }),
       request_coordinator_(
@@ -425,17 +446,20 @@ AppStoreApp::AppStoreApp()
            [this]() { registry_actions_.request_refresh(); },
            [this]() { render_current_screen(); },
            []() {
+               // The startup screen animates on its own.
                return g_runtime.session.screen != Screen::Registry &&
-                      g_runtime.session.screen != Screen::RegistryEdit;
+                      g_runtime.session.screen != Screen::StartupSync;
            }}),
       input_controller_(
           runtime_.session, runtime_.package_jobs.state(), runtime_.exit, share_code_, catalog_actions_,
           detail_actions_, registry_actions_, sync_actions_,
           {[this]() { request_quit(); }, [this]() { navigate_back(); },
-           [this]() { open_registry_screen(); }, [this]() { open_registry_add_screen(); },
+           [this]() { open_registry_screen(); },
            [this]() { execute_detail_confirmation(); },
            [this]() { repair_package_error(); },
-           [this]() { render_current_screen(); }}),
+           [this]() { render_current_screen(); },
+           [this]() { return presenter_.scroll_detail(); },
+           [](KeySound sound) { play_key_sound(sound); }}),
       event_adapter_(
           [this](const AppStoreKeyEvent &key) { handle_key(key); },
           [this](const cp0_battery_info_t &info) {
@@ -540,13 +564,27 @@ AppStoreApp::AppStoreApp()
     bind_page(settings_page_);
     current_ = this;
     set_active_page(*this);
+    lv_display_add_event_cb(lv_display_get_default(), frame_ready, LV_EVENT_REFR_READY, this);
+    // Open the sound output in the background so the first key click is on time.
+    sound_warmup_ = std::async(std::launch::async, []() {
+        try {
+            cp0_signal_audio_api({"SystemSoundPrepare"}, nullptr);
+        } catch (...) {
+        }
+    });
     ui_init(startup_argc_, startup_argv_);
 }
 
 AppStoreApp::~AppStoreApp()
 {
+    lv_display_remove_event_cb_with_user_data(lv_display_get_default(), frame_ready, this);
     ui_deinit();
     current_ = nullptr;
+}
+
+void AppStoreApp::frame_ready(lv_event_t *event)
+{
+    static_cast<AppStoreApp *>(lv_event_get_user_data(event))->key_frame_pending_ = false;
 }
 
 void AppStoreApp::set_arguments(int argc, char **argv)
@@ -562,8 +600,7 @@ void AppStoreApp::activate(Screen screen)
         case Screen::Home:
         case Screen::ShareCode:
         case Screen::Search: set_active_page(catalog_page_); break;
-        case Screen::Registry:
-        case Screen::RegistryEdit: set_active_page(settings_page_); break;
+        case Screen::Registry: set_active_page(settings_page_); break;
         case Screen::Detail:
         case Screen::Confirm:
         case Screen::Progress:

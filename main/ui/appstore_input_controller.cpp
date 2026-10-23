@@ -8,11 +8,29 @@
 
 #include "appstore_client.hpp"
 #include "input_keys.h"
+#include "keyboard_input.h"
 #include "startup_network_flow.hpp"
 
+#include <climits>
 #include <utility>
 
 namespace appstore_ui {
+
+KeySound key_sound(const AppStoreKeyEvent &key, cp0_keyboard_input_context_t context)
+{
+    if (key.release) return KeySound::None;
+    const bool text = context == KBD_INPUT_CONTEXT_TEXT;
+    const bool arrow = key.code == KEY_UP || key.code == KEY_DOWN ||
+                       key.code == KEY_LEFT || key.code == KEY_RIGHT;
+    // F, X, Z and C type letters in text fields.
+    const bool alias = !text && (key.code == KEY_F || key.code == KEY_X ||
+                                 key.code == KEY_Z || key.code == KEY_C);
+    if (arrow || alias) return KeySound::Move;
+    if (key.repeated) return KeySound::None;
+    if (key.code == KEY_ENTER) return KeySound::Select;
+    if (text) return KeySound::None;
+    return key.ch != 0 || key.code == KEY_TAB ? KeySound::Select : KeySound::None;
+}
 
 AppStoreInputController::AppStoreInputController(
     AppStoreSessionState &session, PackageJobState &package_job, ExitController &exit,
@@ -31,6 +49,16 @@ bool AppStoreInputController::matches(const AppStoreKeyEvent &key, char ch,
     return key.ch == ch || key.code == code;
 }
 
+void AppStoreInputController::play_feedback(const AppStoreKeyEvent &key)
+{
+    play(key_sound(key, appstore_input_context(session_.screen)));
+}
+
+void AppStoreInputController::play(KeySound sound)
+{
+    if (sound != KeySound::None && actions_.play_sound) actions_.play_sound(sound);
+}
+
 void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
 {
     if (exit_.requested()) return;
@@ -42,11 +70,14 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             if (held) {
                 if (actions_.request_quit) actions_.request_quit();
             } else if (short_press) {
+                play(KeySound::Select);
                 if (session_.exit_hint_visible) {
                     session_.exit_hint_visible = false;
                 } else if (session_.screen == Screen::Home ||
                            session_.screen == Screen::StartupSync) {
                     session_.exit_hint_visible = true;
+                } else if (session_.screen == Screen::Confirm) {
+                    detail_.cancel_confirmation();
                 } else if (actions_.navigate_back) {
                     actions_.navigate_back();
                 }
@@ -71,6 +102,7 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
     }
     if (key.repeated && dismiss_key_ == key.code) return;
     dismiss_key_ = 0;
+    play_feedback(key);
 
     switch (session_.screen) {
         case Screen::StartupSync:
@@ -111,7 +143,9 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
                 catalog_.open_search();
             else if (matches(key, '7', KEY_7)) {
                 appstore::StoreApp *app = session_.catalog.selected_app();
-                if (app && appstore::can_install_app(*app))
+                if (app && appstore::can_upgrade_app(*app))
+                    detail_.upgrade(app);
+                else if (app && appstore::can_install_app(*app))
                     detail_.start_confirmation(app->installed ? "reinstall" : "install");
                 else
                     session_.status.value() = app ? "Only approved apps can install" : "No selected app";
@@ -125,14 +159,27 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
             break;
         case Screen::Detail: {
             appstore::StoreApp *app = catalog_.ensure_selected();
-            if (key.code == KEY_UP || key.code == KEY_F || key.ch == 'f')
-                detail_.scroll_page(-1);
-            else if (key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x')
-                detail_.scroll_page(1);
-            else if (key.code == KEY_LEFT || key.code == KEY_Z || key.ch == 'z')
-                detail_.cycle_screenshot(-1, now);
-            else if (key.code == KEY_RIGHT || key.code == KEY_C || key.ch == 'c')
-                detail_.cycle_screenshot(1, now);
+            const bool up = key.code == KEY_UP || key.code == KEY_F || key.ch == 'f';
+            const bool page_up = key.ch == 'z' || key.ch == 'l' || key.code == KEY_PAGEUP;
+            const bool page_down = key.ch == 'c' || key.ch == 'm' || key.code == KEY_PAGEDOWN;
+            const bool home = key.ch == 'k' || key.code == KEY_HOME;
+            const bool end = key.ch == 'n' || key.code == KEY_END;
+            if (up || key.code == KEY_DOWN || key.code == KEY_X || key.ch == 'x' ||
+                page_up || page_down || home || end) {
+                // Rebuilding the page takes longer than the key repeat interval,
+                // so move the drawn page unless a status toast has to be cleared.
+                const bool toast = !session_.status.value().empty();
+                if (home) detail_.scroll_to(0, now);
+                else if (end) detail_.scroll_to(INT_MAX, now);
+                else if (page_up || page_down) {
+                    constexpr int viewport_height = 129;
+                    const int steps = (page_up ? -1 : 1) *
+                        ((viewport_height + DetailMediaState::kPageStep - 1) /
+                         DetailMediaState::kPageStep);
+                    detail_.scroll_page(steps, now);
+                } else detail_.scroll_page(up ? -1 : 1, now);
+                if (!toast && actions_.scroll_detail && actions_.scroll_detail()) return;
+            }
             else if (matches(key, '4', KEY_4) || matches(key, 'b', KEY_B))
                 session_.screen = Screen::Home;
             else if (matches(key, '5', KEY_5))
@@ -198,57 +245,17 @@ void AppStoreInputController::handle(const AppStoreKeyEvent &key, uint32_t now)
                 if (actions_.navigate_back) actions_.navigate_back();
             break;
         case Screen::Registry:
-            if (matches(key, 'b', KEY_B)) {
+            if (matches(key, '4', KEY_4) || matches(key, 'b', KEY_B)) {
                 if (actions_.navigate_back) actions_.navigate_back();
-            }
-            else if (key.code == KEY_UP || key.code == KEY_DOWN)
-                session_.registry.page_focus() = 1 - session_.registry.page_focus();
-            else if (matches(key, '5', KEY_5) || matches(key, 'e', KEY_E) ||
-                       (key.code == KEY_ENTER && session_.registry.page_focus() == 1)) {
-                const auto *entry = session_.registry.selected_entry();
-                if (entry && !entry->builtin) registry_.edit_selected();
-            } else if (matches(key, '7', KEY_7) || matches(key, 'd', KEY_D)) {
-                const auto *entry = session_.registry.selected_entry();
-                if (entry && !entry->builtin) registry_.delete_selected();
             } else if (matches(key, '8', KEY_8) || matches(key, 'r', KEY_R)) {
-                sync_.start(true, now);
+                if (!session_.registry.region_commit_pending() && registry_.operation_available())
+                    sync_.start(true, now);
             } else if (key.code == KEY_LEFT || key.code == KEY_Z || key.ch == 'z' || key.ch == '<') {
-                if (session_.registry.page_focus() == 0)
-                    registry_.select_region(registry_.adjacent_region(-1), now);
-                else
-                    session_.registry.select_adjacent_entry(-1);
+                registry_.select_region(registry_.adjacent_region(-1), now);
             } else if (key.code == KEY_RIGHT || key.code == KEY_C || key.ch == 'c' || key.ch == '>') {
-                if (session_.registry.page_focus() == 0)
-                    registry_.select_region(registry_.adjacent_region(1), now);
-                else
-                    session_.registry.select_adjacent_entry(1);
+                registry_.select_region(registry_.adjacent_region(1), now);
             }
             break;
-        case Screen::RegistryEdit: {
-            std::string &field = session_.registry.edit_focus() == 0 ?
-                session_.registry.name_input() : session_.registry.input_url();
-            if (key.code == KEY_BACKSPACE && !field.empty())
-                field.pop_back();
-            else if (key.code == KEY_ENTER)
-                registry_.submit_editor();
-            else if (key.code == KEY_TAB || key.code == KEY_UP || key.code == KEY_DOWN)
-                session_.registry.edit_focus() = 1 - session_.registry.edit_focus();
-            else if (key.ch >= 32 && key.ch <= 126 &&
-                     (session_.registry.edit_focus() == 0 ?
-                      session_.registry.name_input().size() < 48 :
-                      session_.registry.input_url().size() < 180))
-                field.push_back(key.ch);
-            else if (key.code == KEY_LEFT && !session_.registry.edit_url().empty() &&
-                     !session_.registry.entries().empty()) {
-                session_.registry.select_adjacent_entry(-1);
-                registry_.edit_selected();
-            } else if (key.code == KEY_RIGHT && !session_.registry.edit_url().empty() &&
-                       !session_.registry.entries().empty()) {
-                session_.registry.select_adjacent_entry(1);
-                registry_.edit_selected();
-            }
-            break;
-        }
         case Screen::ShareCode:
             if (key.code == KEY_BACKSPACE)
                 share_code_.erase_last();

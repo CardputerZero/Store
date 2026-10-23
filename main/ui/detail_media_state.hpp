@@ -14,11 +14,20 @@ namespace appstore_ui {
 class DetailMediaState
 {
 public:
+    static constexpr int kPageStep = 24;
+    static constexpr uint32_t kPageGlideMs = 180;
+
     void normalize_images(const std::string &app_id, int image_count);
     void cycle_image(int delta, int image_count);
     void normalize_page(const std::string &app_id, int content_height, int viewport_height);
-    void scroll_page(int delta);
+    void scroll_page(int delta, uint32_t now);
+    void scroll_to(int target, uint32_t now);
+    // Target offset; the page glides there from where it was drawn.
     int page_scroll() const { return page_scroll_; }
+    int page_max_scroll() const { return page_max_scroll_; }
+    // Time-based so a redraw in the middle of a glide continues it.
+    int page_scroll_at(uint32_t now) const;
+    uint32_t page_glide_remaining(uint32_t now) const;
     bool needs_loading(const std::string &app_id) const
     { return !loading_ && loading_app_id_ != app_id; }
     void show_overlay(uint32_t now);
@@ -42,6 +51,8 @@ private:
     std::string loading_app_id_;
     std::string page_app_id_;
     int page_scroll_ = 0;
+    int page_scroll_from_ = 0;
+    uint32_t page_glide_tick_ = 0;
     int page_max_scroll_ = 0;
 };
 

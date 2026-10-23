@@ -52,6 +52,33 @@ std::string human_size(const std::string &value)
     return result;
 }
 
+// What the startup sync is doing, as the startup screen's title.
+std::string startup_title(const SyncStatus &status)
+{
+    if (status.cancel_requested) return "Cancelling…";
+    if (status.phase.empty() || status.phase == "network" || status.phase == "config")
+        return "Connecting…";
+    if (status.phase == "catalog") return "Preparing Apps…";
+    if (status.phase == "assets") return "Loading Artwork…";
+    return "Updating Catalog…";
+}
+
+// The registry's host name, or the address itself when it has none.
+std::string registry_host(const std::string &url)
+{
+    const size_t scheme = url.find("://");
+    if (scheme == std::string::npos) return url;
+    const size_t start = scheme + 3;
+    const std::string host = url.substr(start, url.find('/', start) - start);
+    return host.empty() ? url : host;
+}
+
+std::string sentence(std::string text)
+{
+    if (!text.empty() && std::string(".!?").find(text.back()) == std::string::npos) text += '.';
+    return text;
+}
+
 std::string friendly_updated_at(std::string value)
 {
     if (value.empty()) return "-";
@@ -90,6 +117,7 @@ CatalogDisplayViewModel AppStoreViewModelFactory::catalog(
     model.empty_message = session_.catalog.current_category_name() == "Installed"
         ? "No installed apps" : "No apps";
     if (const auto *app = session_.catalog.selected_app()) {
+        model.update_available = can_upgrade_app(*app);
         model.name = single_line(app->name);
         model.version = single_line(app->version.empty() ? "-" : app->version);
         model.author = single_line(app->author.empty() ? "-" : app->author);
@@ -108,6 +136,8 @@ AppDetailViewModel AppStoreViewModelFactory::detail(StoreApp *selected, uint32_t
     model.app = *selected;
     model.app.size = human_size(selected->size);
     model.title = single_line(selected->name) + "  " + single_line(selected->version);
+    model.version = single_line(selected->version.empty() ? "-" : selected->version);
+    model.author = single_line(selected->author.empty() ? "-" : selected->author);
     model.state = selected->installed ? "Installed" : "Not installed";
     if (selected->installed && !selected->installed_version.empty())
         model.state += " " + one_line(selected->installed_version, 10);
@@ -162,19 +192,18 @@ ErrorDialogViewModel AppStoreViewModelFactory::error() const
 InitializationProgressViewModel AppStoreViewModelFactory::initialization() const
 {
     InitializationProgressViewModel model;
-    model.phase = upper_ascii(session_.sync.status.phase.empty() ? "registry" : session_.sync.status.phase);
-    model.url = session_.sync.status.url.empty() ? session_.registry.registry_url() : session_.sync.status.url;
-    model.detail = session_.sync.status.detail.empty() ? "Connecting to registry..." : session_.sync.status.detail;
-    model.percent = session_.sync.status.percent;
-    if (model.percent >= 0) model.detail += " " + std::to_string(model.percent) + "%";
-    model.cancel_requested = session_.sync.status.cancel_requested;
+    const SyncStatus &status = session_.sync.status;
+    model.title = startup_title(status);
+    model.source = registry_host(status.url.empty() ? session_.registry.registry_url() : status.url);
+    model.percent = status.percent;
     model.failed = session_.sync.startup_failed;
     model.failure_focus = session_.sync.failure_focus;
-    model.error_title = session_.error.title.empty() ? "NETWORK FAILED" : session_.error.title;
-    model.error_message = session_.error.message.empty() ? "Network check failed." : session_.error.message;
-    const std::string detail = session_.error.detail.empty()
-        ? "Check Wi-Fi before opening Store again." : session_.error.detail;
-    model.error_detail_lines = wrap_display_text(detail, 44);
+    model.error_title = session_.error.title.empty() ? "Cannot Connect to Store" : session_.error.title;
+    // The reason, then what to do about it. The non-breaking hyphen keeps Wi-Fi on one line.
+    model.error_message =
+        sentence(session_.error.message.empty() ? "No registry could be reached" : session_.error.message) +
+        " " + sentence(session_.error.detail.empty()
+                           ? "Check Wi\u2011Fi or change server in Settings" : session_.error.detail);
     return model;
 }
 
@@ -184,29 +213,18 @@ StoreSettingsViewModel AppStoreViewModelFactory::settings(bool operation_running
     model.region_code = session_.registry.region_code();
     model.active_region = session_.registry.active_region();
     model.registry_url = session_.registry.registry_url();
-    model.focus = session_.registry.page_focus();
     model.loading = session_.registry_loading;
-    model.selected_index = session_.registry.selected_index();
-    model.entry_count = static_cast<int>(session_.registry.entries().size());
-    model.has_entry = session_.registry.selected_entry() != nullptr;
-    if (model.has_entry) model.entry = *session_.registry.selected_entry();
     model.operation_running = operation_running;
     model.region_commit_pending = session_.registry.region_commit_pending();
     if (model.region_commit_pending) {
         model.status = "Region update pending...";
     } else if (model.operation_running) {
         model.status = "Registry operation running...";
-    } else if (model.has_entry && !model.entry.error.empty()) {
-        model.status = single_line(model.entry.error);
+    } else if (!session_.registry.error().empty()) {
+        model.status = single_line(session_.registry.error());
         model.status_is_error = true;
     }
     return model;
-}
-
-RegistryEditorViewModel AppStoreViewModelFactory::registry_editor() const
-{
-    return {!session_.registry.edit_url().empty(), session_.registry.name_input(),
-            session_.registry.input_url(), session_.registry.edit_focus()};
 }
 
 TextEntryViewModel AppStoreViewModelFactory::share_code() const

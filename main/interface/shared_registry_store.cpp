@@ -69,29 +69,23 @@ bool SharedRegistryStore::load(RegistryConfig &config) const
 {
     const std::string count_text = get_string_(key("count"), "");
     if (count_text.empty()) return false;
-    int count = std::min(std::atoi(count_text.c_str()), max_entries_);
-    if (count <= 0) return false;
-
     config = RegistryConfig{};
     config.region = get_string_(key("region"), "auto");
     config.active_region = get_string_(key("active_region"), "default");
-    for (int index = 0; index < count; ++index) {
-        RegistryEntry entry;
-        if (unpack_entry(get_string_(key(std::to_string(index) + ".entry"), ""), entry))
-            config.entries.push_back(std::move(entry));
-    }
-    return !config.entries.empty();
+    config = normalize(std::move(config));
+    return true;
 }
 
 bool SharedRegistryStore::save(const RegistryConfig &config) const
 {
-    const int count = std::min(static_cast<int>(config.entries.size()), max_entries_);
-    set_string_(key("region"), config.region.empty() ? "auto" : config.region);
-    set_string_(key("active_region"), config.active_region.empty() ? "default" : config.active_region);
+    const RegistryConfig canonical = normalize(config);
+    const int count = 1;
+    set_string_(key("region"), canonical.region);
+    set_string_(key("active_region"), canonical.active_region);
     set_string_(key("count"), std::to_string(count));
     for (int index = 0; index < max_entries_; ++index)
         set_string_(key(std::to_string(index) + ".entry"),
-                    index < count ? pack_entry(config.entries[index]) : "");
+                    index < count ? pack_entry(canonical.entries[index]) : "");
     save_();
     return true;
 }

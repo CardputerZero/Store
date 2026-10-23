@@ -21,6 +21,7 @@ RegistryPersistenceService::RegistryPersistenceService(
 void RegistryPersistenceService::apply_hint(const appstore::RegistryConfig &config)
 {
     session_.registry.apply_config_hint(config);
+    session_.sync.status.url = session_.registry.registry_url();
 }
 
 void RegistryPersistenceService::log_config(
@@ -40,6 +41,7 @@ void RegistryPersistenceService::initialize()
         apply_hint(shared);
         if (dependencies_.replace_backend && !dependencies_.replace_backend(shared))
             session_.status.value() = "Unable to apply saved registry settings";
+        shared_store_.save(shared);
         return;
     }
 
@@ -59,6 +61,7 @@ bool RegistryPersistenceService::save_backend()
         if (dependencies_.log) dependencies_.log("shared_registry save skipped: backend config empty");
         return false;
     }
+    apply_hint(backend);
     return shared_store_.save(backend);
 }
 

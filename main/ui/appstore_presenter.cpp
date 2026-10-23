@@ -79,6 +79,19 @@ std::string app_initial(const appstore::StoreApp &app)
     return "A";
 }
 
+// The Store icon scaled into the size x size square at x, y; false if it is missing.
+bool draw_store_icon(lv_obj_t *root, AppStoreImageRenderer &images, int x, int y, int size)
+{
+    lv_obj_t *icon = images.draw_packaged(root, "store_100.png", x, y);
+    if (!icon) return false;
+    const int scale = std::max(1, std::min(size * 256 / lv_obj_get_width(icon),
+                                           size * 256 / lv_obj_get_height(icon)));
+    lv_image_set_scale(icon, static_cast<uint16_t>(scale));
+    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
+    lv_obj_set_size(icon, size, size);
+    return true;
+}
+
 } // namespace
 
 AppStorePresenter::AppStorePresenter(
@@ -119,10 +132,8 @@ void AppStorePresenter::draw_category_selector(lv_obj_t *root)
     if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
         strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    lv_obj_t *name = label(root, category, 28, 24, 86, 20,
-                          store_font(category, 14, true), 0xFFFFFF,
-                          LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    marquee_label(root, category, 28, 24, 86, 20, store_font(category, 14, true), 0xFFFFFF,
+                  category_marquee_, category, LV_TEXT_ALIGN_CENTER);
     if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
         strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
 }
@@ -156,12 +167,21 @@ bool AppStorePresenter::draw_detail_background(lv_obj_t *root,
            images_.draw_screenshot(root, screenshots[session_.detail_media.image_index()]);
 }
 
+bool AppStorePresenter::scroll_detail()
+{
+    return detail_page_.scroll(session_.detail_media);
+}
+
 void AppStorePresenter::render(Screen screen, bool registry_operation_running)
 {
     rendered_root_ = nullptr;
     switch (screen) {
         case Screen::StartupSync:
-            initialization_page_.render(context(initialization_page_), view_models_.initialization());
+            initialization_page_.render(
+                context(initialization_page_), view_models_.initialization(),
+                [this](lv_obj_t *root, int x, int y, int size) {
+                    draw_store_icon(root, images_, x, y, size);
+                });
             break;
         case Screen::Home: {
             lv_obj_t *root = catalog_page_.screen();
@@ -186,9 +206,6 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                 [this](lv_obj_t *parent, const std::string &path, int x, int y) {
                     return images_.draw_thumbnail(parent, path, x, y);
                 },
-                [this](lv_obj_t *parent, const std::string &name, int x, int y) {
-                    return images_.draw_packaged(parent, name, x, y);
-                },
                 [this](const appstore::StoreApp &app) {
                     AppStoreShortcutBar::render_detail(
                         detail_page_.screen(), session_.app_dir, app);
@@ -209,15 +226,10 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
                 view_models_.settings(registry_operation_running);
             settings_page_.render(context(settings_page_), model);
             AppStoreShortcutBar::render_settings(
-                settings_page_.screen(), model.has_entry,
-                model.has_entry && model.entry.builtin,
-                !model.loading && !model.operation_running &&
+                settings_page_.screen(), !model.loading && !model.operation_running &&
                     !model.region_commit_pending);
             break;
         }
-        case Screen::RegistryEdit:
-            settings_page_.render_editor(context(settings_page_), view_models_.registry_editor());
-            break;
         case Screen::ShareCode:
             catalog_page_.render_text_entry(context(catalog_page_), view_models_.share_code());
             break;

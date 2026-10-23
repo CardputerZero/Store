@@ -24,6 +24,10 @@ std::vector<std::string> wrap_display_text(std::string text, int)
 }
 
 bool can_install_app(const StoreApp &app) { return app.installable; }
+bool can_upgrade_app(const StoreApp &app)
+{
+    return app.installable && app.installed && app.version != app.installed_version;
+}
 std::string review_label(const StoreApp &app) { return app.review_status; }
 std::string job_action_label(const std::string &action)
 {
@@ -80,11 +84,26 @@ int main()
     assert(detail.app.size == "19.6 MB");
     assert(detail.updated == "2026-07-23 14:32");
     assert(detail.title == "A very long application name that must stay intact  2.0");
+    assert(detail.version == "2.0" && detail.author == "-");
 
+    assert(detail.app.permissions == 0);
+    app.permissions = appstore::kPermissionNetwork | appstore::kPermissionCamera;
+    detail = factory.detail(&app, 100, 6000);
+    assert(detail.app.permissions == (appstore::kPermissionNetwork | appstore::kPermissionCamera));
     catalog = factory.catalog(100, 6000);
     assert(catalog.version == "2.0");
     assert(catalog.size == "19.6 MB");
     assert(catalog.updated == "2026-07-23");
+    assert(catalog.update_available);
+    app.installed_version = app.version;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installed_version = "1.0";
+    app.installable = false;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installable = true;
+    app.installed = false;
+    assert(!factory.catalog(100, 6000).update_available);
+    app.installed = true;
     session.catalog.categories().push_back("Installed");
     session.catalog.select_category_by_name("Installed");
     session.catalog.rebuild_visible();
@@ -94,12 +113,14 @@ int main()
     session.catalog.rebuild_visible();
     catalog = factory.catalog(100, 6000);
     assert(catalog.show_empty && catalog.empty_message == "No installed apps");
+    assert(!catalog.update_available);
     app.installed = true;
 
     app.name = "Line one\nLine two";
     app.version = "2.0\tbeta";
     detail = factory.detail(&app, 100, 6000);
     assert(detail.title == "Line one Line two  2.0 beta");
+    assert(detail.version == "2.0 beta");
     app.name = "App 0";
     app.version = "2.0";
 
@@ -122,15 +143,36 @@ int main()
     assert(error.title == "OPERATION FAILED");
     assert(error.message == "Package operation failed.");
     auto initialization = factory.initialization();
-    assert(initialization.phase == "REGISTRY");
-    assert(initialization.detail == "Connecting to registry...");
+    assert(initialization.title == "Connecting…");
+    assert(initialization.percent == -1 && !initialization.failed);
+    session.sync.status.phase = "registry";
+    session.sync.status.percent = 40;
+    session.sync.status.url = "https://example.test/apps/registry.json";
+    initialization = factory.initialization();
+    assert(initialization.title == "Updating Catalog…");
+    assert(initialization.source == "example.test" && initialization.percent == 40);
+    session.sync.status.cancel_requested = true;
+    assert(factory.initialization().title == "Cancelling…");
+    session.sync.status = {};
+    // The alert gives the reason, then what to do about it.
+    session.sync.startup_failed = true;
+    session.error.message = "Wi-Fi unavailable";
+    initialization = factory.initialization();
+    assert(initialization.failed && initialization.error_title == "Cannot Connect to Store");
+    assert(initialization.error_message ==
+           "Wi-Fi unavailable. Check Wi\u2011Fi or change server in Settings.");
+    session.sync.startup_failed = false;
+    session.error.clear();
 
-    session.registry.entries().push_back(
-        {"https://example.test/registry.json", "Example", "ok", "1", "now", "", "global", true, false});
+    appstore::RegistryData registry_data;
+    registry_data.region = {"auto", "Auto", "", "CN"};
+    registry_data.entries.push_back(
+        {appstore::SharedRegistryStore::kChinaRegistryUrl, "CardputerZero Hub", "ok", "1",
+         "now", "Registry offline; using cached catalog", "CN", true, true});
+    session.registry.apply(registry_data);
     auto settings = factory.settings(false);
-    assert(settings.has_entry && settings.entry.name == "Example");
-    session.registry.entries()[0].error = "Registry offline; using cached catalog";
-    settings = factory.settings(false);
+    assert(settings.active_region == "CN" && settings.region_code == "auto");
+    assert(settings.registry_url == appstore::SharedRegistryStore::kChinaRegistryUrl);
     assert(settings.status == "Registry offline; using cached catalog");
     assert(settings.status_is_error);
     assert(session.registry.schedule_region("CN", 100));

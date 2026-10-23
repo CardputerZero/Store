@@ -53,7 +53,6 @@ downloads continue to use curl so interrupted downloads can be resumed safely.
 ./M5CardputerZero-AppStore --registries
 ./M5CardputerZero-AppStore --regions
 ./M5CardputerZero-AppStore --set-region CN
-./M5CardputerZero-AppStore --add-registry https://example.com/generated/registry.json
 ./M5CardputerZero-AppStore --sync
 ./M5CardputerZero-AppStore --plan <app-id>
 ./M5CardputerZero-AppStore --install <app-id>
@@ -92,22 +91,40 @@ Desktop-entry repair is best effort. Failure to find or rewrite an APPLaunch
 desktop entry is reported as `WARNING` after a successful package operation and
 does not change the verified package result.
 
-Multiple registries are supported. On the Registries settings screen, use the
-region radio buttons to choose the built-in Default or CN registry. Add another
-registry from the same screen or with `--add-registry`; the selected region
-registry and all enabled custom registries are synced and merged into one app
-list. Apps with the same UUID/share code are de-duplicated, with later registry
-metadata taking precedence. On the home screen, use `Z/C` (left/right) to change
-category and `F/X` (up/down) to select an app. Installed filters catalog apps by
+Settings offers three server modes for the same catalog: **Auto**, **Default**
+(GitHub), and **CN** (Alibaba Cloud OSS). `Z/C` (left/right) changes the mode;
+`4` goes back and `8` syncs after the pending selection is applied.
+The screen retains its dark styling, segmented selector, and read-only active
+server information. Auto tries GitHub first and falls back to OSS if it cannot
+retrieve a usable catalog; explicit Default and CN choices stay pinned to that
+server. Cached data does not count as a successful connectivity check. Only one
+server supplies the catalog at a time; custom registries and their editor are
+not supported. Existing saved custom sources are normalized to the selected
+built-in server, and the mode and effective server are persisted across restarts.
+
+On the home screen, use `Z/C` (left/right) to change category and `F/X` (up/down)
+to select an app. Categories include All, Installed, and the registry's app
+categories; there is no Recommended category. Installed filters catalog apps by
 their actual package installation state and refreshes after package operations.
 The Installed category is hidden when empty; removing its last app returns the
-selection to All. Long app names pause for two seconds, then scroll horizontally
-at 20 pixels per second, with another pause at the end. Status-bar updates keep
-the current reading position, and labels never scroll vertically.
-The header shows the selection within the category and the total catalog size.
+selection to All. Long names bounce like the selected APPLaunch title: they
+pause for two seconds, scroll horizontally at 40 pixels per second to the end,
+pause again, and scroll back. Status-bar updates keep the current reading
+position, and labels never scroll vertically. In search results only the
+selected name scrolls; the others end with an ellipsis. The home screen keeps
+its original layout: the app icon on the left, name and metadata on the right,
+and plain-text number-key shortcuts along the bottom. Permission icons appear
+only on the app details page.
 Press `4` for settings, `5` for share code, `6` for search, `7` for
-install/reinstall, and `8` or Enter for details. AppStore syncs the registry
-automatically when it starts.
+install/reinstall, and `8` or Enter for details. When an installed app has an
+available update, the list indicates it and shortcut `7` becomes **update**,
+opening the upgrade confirmation directly without visiting details.
+AppStore syncs the registry
+automatically when it starts. The startup screen names the current step
+(connecting, updating the catalog, loading artwork, preparing apps) above a
+progress bar with the registry's host, and `Tab` opens settings. If no
+registry can be reached, an alert offers Exit or Settings; `Z/C` moves between
+them and Enter confirms.
 
 On the home and startup screens, a short `Esc` press opens the centered
 "Hold ESC for 3s to exit." hint. Press `Esc` again or another key to dismiss
@@ -115,13 +132,30 @@ the hint without activating the page underneath. On other screens, short
 `Esc` keeps its back/cancel behavior. Hold `Esc` for three seconds to exit
 from any screen, including while the hint is open.
 
-The detail page shows the complete combined summary and description, followed
-by 160 x 85 screenshot previews loaded from the registry. `F/X` scrolls the
-whole content area; the system bar and bottom actions stay fixed. Descriptions
-wrap without a height limit or automatic scrolling. `Z/C` cycles screenshots;
-apps without screenshots have no screenshot area. Detail actions are `4` back,
-`6` install/reinstall, `7` upgrade, and `8` remove, shown when applicable.
-The existing full-screen screenshot viewer remains accessible through `5`.
+Keys play the launcher's system sounds: arrows and `F/X/Z/C` play the switch
+sound on every step, including repeats while held, and Enter, Tab, a short
+`Esc`, and shortcut keys play the enter sound. Typing in the share-code and
+search fields is silent. A held key repeats no faster than the screen redraws,
+and its sound keeps playing while the redraw waits, so the view keeps up and
+stops when the key is released.
+
+The detail page shows the app name, color-coded version, maintainer, size,
+and update fields, the install state, and the complete description. Screenshots
+follow the description in vertical rows, one image per row at nearly full screen
+width (300 pixels), with aspect ratio preserved. Package and category information
+follow the screenshots, then a matching PERMISSIONS caption and permission icons.
+`F/X` scrolls the whole content area with a short glide, 24 pixels per press;
+`Z/C` and `K/L` page up and down, and `N/M` jump to the start and end. Holding
+a key scrolls continuously. The system
+bar and bottom actions stay fixed, and status messages appear just above the
+actions at any scroll position. Descriptions wrap without a height limit or
+automatic scrolling. Apps without screenshots have no screenshot area. Detail actions are `4` back,
+`5` screens (the full-screen viewer), `6` install/reinstall, `7` update, and
+`8` remove, shown when applicable. After a successful removal the Store returns
+to the home list.
+The existing full-screen screenshot viewer remains accessible through `5`, where
+`Z/C` cycles images. On the details page itself those keys page through the
+content.
 
 Registry entries must provide a Debian package download:
 

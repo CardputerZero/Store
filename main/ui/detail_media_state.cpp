@@ -42,14 +42,43 @@ void DetailMediaState::normalize_page(const std::string &app_id, int content_hei
     if (page_app_id_ != app_id) {
         page_app_id_ = app_id;
         page_scroll_ = 0;
+        page_scroll_from_ = 0;
     }
     page_max_scroll_ = std::max(0, content_height - viewport_height);
     page_scroll_ = std::clamp(page_scroll_, 0, page_max_scroll_);
+    page_scroll_from_ = std::clamp(page_scroll_from_, 0, page_max_scroll_);
 }
 
-void DetailMediaState::scroll_page(int delta)
+void DetailMediaState::scroll_page(int delta, uint32_t now)
 {
-    page_scroll_ = std::clamp(page_scroll_ + delta * 24, 0, page_max_scroll_);
+    scroll_to(page_scroll_ + delta * kPageStep, now);
+}
+
+void DetailMediaState::scroll_to(int target, uint32_t now)
+{
+    target = std::clamp(target, 0, page_max_scroll_);
+    if (target == page_scroll_) return;
+    // Start from the drawn position so key repeat keeps one continuous motion.
+    page_scroll_from_ = page_scroll_at(now);
+    page_scroll_ = target;
+    page_glide_tick_ = now;
+}
+
+int DetailMediaState::page_scroll_at(uint32_t now) const
+{
+    const uint32_t left = page_glide_remaining(now);
+    if (left == 0) return page_scroll_;
+    // Cubic ease-out: moves as soon as the key is pressed, settles gently.
+    const int64_t total = static_cast<int64_t>(kPageGlideMs) * kPageGlideMs * kPageGlideMs;
+    const int64_t rest = static_cast<int64_t>(left) * left * left;
+    return page_scroll_ - static_cast<int>((page_scroll_ - page_scroll_from_) * rest / total);
+}
+
+uint32_t DetailMediaState::page_glide_remaining(uint32_t now) const
+{
+    const uint32_t elapsed = now - page_glide_tick_;
+    if (page_scroll_from_ == page_scroll_ || elapsed >= kPageGlideMs) return 0;
+    return kPageGlideMs - elapsed;
 }
 
 bool DetailMediaState::hide_overlay_if_elapsed(uint32_t now, uint32_t timeout_ms)

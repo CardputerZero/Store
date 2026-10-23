@@ -27,6 +27,8 @@ public:
                       std::function<void()> draw_system_bar);
 
     void render(Screen screen, bool registry_operation_running);
+    // Moves the drawn detail page to its scroll target; false if it needs a render.
+    bool scroll_detail();
 
 private:
     PageRenderContext context(AppStoreUiPage &page);
@@ -45,6 +47,7 @@ private:
     AppStoreImageRenderer &images_;
     std::function<void()> draw_system_bar_;
     lv_obj_t *rendered_root_ = nullptr;
+    HorizontalMarquee category_marquee_;
 };
 
 } // namespace appstore_ui

@@ -43,6 +43,7 @@ void DetailActionController::start_confirmation(const std::string &action)
         session_.status.value() = "Plan check already running";
         return;
     }
+    confirmation_origin_ = session_.screen == Screen::Home ? Screen::Home : Screen::Detail;
     session_.confirmation.begin(action, app->id);
     if (action == "uninstall") {
         session_.confirmation.lines() = {"Delete " + app->name,
@@ -88,7 +89,8 @@ void DetailActionController::remove(StoreApp *app)
 
 void DetailActionController::cancel_confirmation()
 {
-    session_.screen = Screen::Detail;
+    session_.screen = confirmation_origin_;
+    confirmation_origin_ = Screen::Detail;
     session_.confirmation.reset();
 }
 
@@ -140,6 +142,7 @@ bool DetailActionController::apply_plan_result(const std::string &action,
         return false;
     }
     if (rc == 0 && apply_plan(output)) {
+        confirmation_origin_ = origin_screen == Screen::Home ? Screen::Home : Screen::Detail;
         session_.status.value().clear();
         session_.screen = Screen::Confirm;
         return true;
@@ -200,9 +203,15 @@ void DetailActionController::ensure_screenshots()
     if (start_screenshots_(app->id)) session_.detail_media.begin_loading(app->id);
 }
 
-void DetailActionController::scroll_page(int delta)
+void DetailActionController::scroll_page(int delta, uint32_t now)
 {
-    session_.detail_media.scroll_page(delta);
+    session_.detail_media.scroll_page(delta, now);
+    session_.status.value().clear();
+}
+
+void DetailActionController::scroll_to(int target, uint32_t now)
+{
+    session_.detail_media.scroll_to(target, now);
     session_.status.value().clear();
 }
 

@@ -8,6 +8,7 @@
 
 #include "appstore_client.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -15,16 +16,14 @@
 namespace appstore_ui {
 
 struct InitializationProgressViewModel {
-    std::string phase;
-    std::string url;
-    std::string detail;
+    std::string title;
+    // Host of the registry being synced.
+    std::string source;
     int percent = -1;
-    bool cancel_requested = false;
     bool failed = false;
     int failure_focus = 0;
     std::string error_title;
     std::string error_message;
-    std::vector<std::string> error_detail_lines;
 };
 
 struct CatalogDisplayViewModel {
@@ -37,6 +36,7 @@ struct CatalogDisplayViewModel {
     int selected_index = 0;
     int app_count = 0;
     int total_count = 0;
+    bool update_available = false;
     bool show_empty = false;
     bool show_status = false;
     std::string status;
@@ -73,6 +73,8 @@ struct AppDetailViewModel {
     bool has_app = false;
     appstore::StoreApp app;
     std::string title;
+    std::string version;
+    std::string author;
     std::string state;
     std::string updated;
     bool installable = false;
@@ -118,23 +120,11 @@ struct StoreSettingsViewModel {
     std::string region_code;
     std::string active_region;
     std::string registry_url;
-    int focus = 0;
     bool loading = false;
-    bool has_entry = false;
-    appstore::RegistryEntry entry;
-    int selected_index = 0;
-    int entry_count = 0;
     bool operation_running = false;
     bool region_commit_pending = false;
     std::string status;
     bool status_is_error = false;
-};
-
-struct RegistryEditorViewModel {
-    bool editing = false;
-    std::string name;
-    std::string url;
-    int focus = 0;
 };
 
 } // namespace appstore_ui

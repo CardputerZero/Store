@@ -11,7 +11,9 @@
 int main()
 {
     appstore_ui::CatalogState state;
-    assert(state.current_category_name() == "Recommended");
+    assert(state.current_category_name() == "All");
+    assert(state.categories() == std::vector<std::string>{"All"});
+    assert(!state.select_category_by_name("Recommended"));
 
     appstore::StoreApp recommended;
     recommended.id = "recommended";
@@ -24,8 +26,10 @@ int main()
     state.apps() = {recommended, utility};
 
     state.rebuild_visible();
-    assert(state.visible().size() == 1);
+    assert(state.visible().size() == 2);
     assert(state.selected_app() && state.selected_app()->id == "recommended");
+    assert(state.apps()[0].recommended);
+    assert(!state.apps()[1].recommended);
 
     state.select_default_category();
     state.rebuild_visible();

@@ -8,9 +8,11 @@
 #include "appstore_task_service.hpp"
 #include "detached_worker_launcher.hpp"
 #include "input_keys.h"
+#include "keyboard_input.h"
 
 #include <cassert>
 #include <iostream>
+#include <vector>
 
 namespace appstore {
 
@@ -58,11 +60,25 @@ int main()
            KBD_INPUT_CONTEXT_NAVIGATION);
     assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Search) ==
            KBD_INPUT_CONTEXT_TEXT);
-    assert(appstore_ui::appstore_input_context(appstore_ui::Screen::RegistryEdit) ==
-           KBD_INPUT_CONTEXT_TEXT);
+    assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Registry) ==
+           KBD_INPUT_CONTEXT_NAVIGATION);
     assert(appstore_ui::appstore_input_context(appstore_ui::Screen::Detail) ==
            KBD_INPUT_CONTEXT_NAVIGATION);
     using namespace appstore_ui;
+
+    // Moving keys tick on every repeat; other keys sound once per press.
+    constexpr auto nav = KBD_INPUT_CONTEXT_NAVIGATION;
+    constexpr auto text = KBD_INPUT_CONTEXT_TEXT;
+    assert(key_sound({KEY_DOWN}, nav) == KeySound::Move);
+    assert(key_sound({KEY_X, 0, 'x', false, true}, nav) == KeySound::Move);
+    assert(key_sound({KEY_X, 0, 'x'}, text) == KeySound::None);
+    assert(key_sound({KEY_UP}, text) == KeySound::Move);
+    assert(key_sound({KEY_ENTER}, text) == KeySound::Select);
+    assert(key_sound({KEY_8, 0, '8'}, nav) == KeySound::Select);
+    assert(key_sound({KEY_8, 0, '8', false, true}, nav) == KeySound::None);
+    assert(key_sound({KEY_LEFTSHIFT}, nav) == KeySound::None);
+    assert(key_sound({KEY_DOWN, 0, 0, true}, nav) == KeySound::None);
+
     AppStoreSessionState session;
     PackageJobState package_job;
     ExitController exit;
@@ -72,8 +88,15 @@ int main()
     AppStoreTaskService tasks(coordinator, workers,
         [](const std::vector<std::string> &, int *rc) { *rc = 0; return std::string{}; });
     CatalogController catalog(session, share_code, []() {});
-    DetailActionController detail(session, package_job, [](const std::string &, const std::string &) {},
-                                  []() { return false; });
+    std::string planned_action;
+    std::string planned_app;
+    int plans = 0;
+    DetailActionController detail(session, package_job,
+        [&](const std::string &action, const std::string &app_id) {
+            planned_action = action;
+            planned_app = app_id;
+            ++plans;
+        }, []() { return false; });
     RegistryController registry(
         session, tasks, package_job,
         {[](const std::string &) { return appstore::RegistryData{}; },
@@ -89,8 +112,10 @@ int main()
     int backs = 0;
     int repairs = 0;
     int registry_opens = 0;
-    int registry_adds = 0;
     int confirmations = 0;
+    int page_moves = 0;
+    bool page_drawn = true;
+    std::vector<KeySound> sounds;
     AppStoreInputController input(
         session, package_job, exit, share_code, catalog, detail, registry, sync,
         {[&]() { ++quits; },
@@ -99,8 +124,9 @@ int main()
              session.screen = session.sync.startup_active ? Screen::StartupSync : Screen::Home;
          },
          [&]() { ++registry_opens; session.screen = Screen::Registry; },
-         [&]() { ++registry_adds; session.screen = Screen::RegistryEdit; },
-         [&]() { ++confirmations; }, [&]() { ++repairs; }, [&]() { ++renders; }});
+         [&]() { ++confirmations; }, [&]() { ++repairs; }, [&]() { ++renders; },
+         [&]() { ++page_moves; return page_drawn; },
+         [&](KeySound sound) { sounds.push_back(sound); }});
 
     session.catalog.categories() = {"All"};
     appstore::StoreApp first;
@@ -114,11 +140,12 @@ int main()
     session.screen = Screen::Home;
     input.handle({KEY_DOWN}, 100);
     assert(session.catalog.selected_index() == 1 && renders == 1);
+    assert(sounds == std::vector<KeySound>{KeySound::Move});
 
-    input.handle({KEY_5}, 110);
-    assert(session.screen == Screen::ShareCode);
+    input.handle({KEY_5, 0, '5'}, 110);
+    assert(session.screen == Screen::ShareCode && sounds.back() == KeySound::Select);
     input.handle({0, 0, 'A'}, 120);
-    assert(share_code.input() == "A");
+    assert(share_code.input() == "A" && sounds.size() == 2);
     input.handle({KEY_BACKSPACE}, 130);
     assert(share_code.input().empty());
 
@@ -162,67 +189,79 @@ int main()
     input.handle({KEY_ENTER}, 154);
     assert(confirmations == 1);
 
-    session.screen = Screen::RegistryEdit;
-    session.registry.edit_focus() = 0;
-    session.registry.name_input().clear();
-    input.handle({0, 0, 'X'}, 160);
-    assert(session.registry.name_input() == "X");
-    input.handle({KEY_TAB}, 161);
-    assert(session.registry.edit_focus() == 1);
-    const std::string url_before_x = session.registry.input_url();
-    input.handle({KEY_X, 0, 'x'}, 162);
-    assert(session.registry.edit_focus() == 1);
-    assert(session.registry.input_url() == url_before_x + "x");
-
-    appstore::RegistryData registry_data;
-    registry_data.entries.push_back(
-        {"https://example.invalid/registry.json", "Example", "ok", "1",
-         "now", "", "global", true, false});
-    session.registry.apply(registry_data);
     session.screen = Screen::Registry;
-    input.handle({KEY_5}, 170);
-    assert(session.screen == Screen::RegistryEdit);
-    assert(session.registry.name_input() == "Example");
-    session.screen = Screen::Registry;
+    session.status.value().clear();
+    for (const auto code : {KEY_A, KEY_E, KEY_D, KEY_T, KEY_5, KEY_6, KEY_7, KEY_ENTER})
+        input.handle({static_cast<uint32_t>(code)}, 170);
+    assert(session.screen == Screen::Registry && session.status.value().empty());
+    input.handle({KEY_DOWN}, 171);
+    input.handle({KEY_RIGHT}, 172);
+    assert(session.registry.region_code() == "default");
+    input.handle({KEY_C, 0, 'c'}, 173);
+    assert(session.registry.region_code() == "CN");
+    input.handle({KEY_Z, 0, 'z'}, 174);
+    assert(session.registry.region_code() == "default");
+    input.handle({KEY_8}, 175);
+    assert(!sync.running());
+    const int backs_before_settings = backs;
     input.handle({KEY_4}, 180);
-    assert(session.screen == Screen::Registry && registry_adds == 0);
-    input.handle({KEY_A, 0, 'a'}, 181);
-    assert(session.screen == Screen::Registry && registry_adds == 0);
-    session.status.value().clear();
-    input.handle({KEY_6}, 182);
-    input.handle({KEY_T, 0, 't'}, 183);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
-
-    appstore::RegistryData builtin_registry_data;
-    builtin_registry_data.entries.push_back(
-        {"https://example.invalid/builtin.json", "Built in", "ok", "1",
-         "now", "", "global", true, true});
-    session.registry.apply(builtin_registry_data);
-    session.status.value().clear();
+    assert(session.screen == Screen::Home && backs == backs_before_settings + 1);
     session.screen = Screen::Registry;
-    input.handle({KEY_5}, 184);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
-    input.handle({KEY_7}, 185);
-    assert(session.screen == Screen::Registry && session.status.value().empty());
+    input.handle({KEY_B, 0, 'b'}, 181);
+    assert(session.screen == Screen::Home && backs == backs_before_settings + 2);
+    backs = backs_before_settings;
+    session.status.value().clear();
 
     session.screen = Screen::Detail;
     const std::string detail_id = session.catalog.selected_app()->id;
     session.detail_media.normalize_page(detail_id, 400, 129);
+    const int renders_before_scroll = renders;
     input.handle({KEY_X, 0, 'x'}, 186);
     assert(session.detail_media.page_scroll() == 24);
-    input.handle({KEY_F, 0, 'f'}, 187);
-    assert(session.detail_media.page_scroll() == 0);
+    assert(session.detail_media.page_scroll_at(186) == 0);
+    // Scrolling moves the drawn page instead of rebuilding it.
+    assert(page_moves == 1 && renders == renders_before_scroll);
+    input.handle({KEY_F, 0, 'f', false, true}, 187);
+    assert(session.detail_media.page_scroll() == 0 && sounds.back() == KeySound::Move);
+    // Clearing a status toast takes a full render.
+    session.status.value() = "Installed";
+    input.handle({KEY_X, 0, 'x'}, 188);
+    assert(session.status.value().empty() && page_moves == 2);
+    assert(renders == renders_before_scroll + 1);
+    // So does a page that is not drawn yet.
+    page_drawn = false;
+    input.handle({KEY_F, 0, 'f'}, 189);
+    assert(page_moves == 3 && renders == renders_before_scroll + 2);
+    page_drawn = true;
     session.catalog.selected_app()->images = "icon,one,two";
-    input.handle({KEY_C, 0, 'c'}, 188);
-    assert(session.detail_media.image_index() == 1 && session.screen == Screen::Detail);
-    input.handle({KEY_Z, 0, 'z'}, 189);
-    assert(session.detail_media.image_index() == 0);
+    session.screen = Screen::Detail;
+    session.detail_media.normalize_page(detail_id, 1000, 129);
+    input.handle({0, 0, 'c'}, 200);
+    const int page = ((129 + 24 - 1) / 24) * 24;
+    assert(session.detail_media.page_scroll() == page && session.screen == Screen::Detail);
+    input.handle({0, 0, 'z'}, 400);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'm'}, 600);
+    assert(session.detail_media.page_scroll() == page);
+    input.handle({0, 0, 'l'}, 800);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'k'}, 1000);
+    assert(session.detail_media.page_scroll() == 0);
+    input.handle({0, 0, 'n'}, 1200);
+    assert(session.detail_media.page_scroll() == session.detail_media.page_max_scroll() &&
+           session.detail_media.image_index() == 0);
     input.handle({KEY_5}, 190);
     assert(session.screen == Screen::Screenshots);
+    input.handle({KEY_C, 0, 'c'}, 191);
+    assert(session.detail_media.image_index() == 1);
+    input.handle({KEY_Z, 0, 'z'}, 192);
+    assert(session.detail_media.image_index() == 0);
     session.screen = Screen::Detail;
+    const size_t sounds_before_back = sounds.size();
     input.handle({KEY_ESC}, 200);
     input.handle({KEY_ESC, 0, 0, true}, 300);
     assert(backs == 1 && session.screen == Screen::Home);
+    assert(sounds.size() == sounds_before_back + 1 && sounds.back() == KeySound::Select);
 
     session.screen = Screen::StartupSync;
     session.sync.startup_failed = false;
@@ -252,6 +291,60 @@ int main()
     assert(repairs == 1);
     input.handle({KEY_B}, 510);
     assert(backs == 3);
+
+    auto *selected = session.catalog.selected_app();
+    selected->installable = true;
+    selected->installed = true;
+    selected->version = "2.0";
+    selected->installed_version = "1.0";
+    const std::string plan = "PLAN\t" + selected->id + "\tDemo\t2.0\t12 MB\t80 MB\tlibfoo\t\n";
+    const int backs_before_confirm = backs;
+    uint32_t tick = 600;
+    for (const auto origin : {Screen::Home, Screen::Detail}) {
+        for (const auto cancel : {KEY_B, KEY_N, KEY_ENTER, KEY_ESC}) {
+            session.screen = origin;
+            const int plans_before = plans;
+            input.handle({KEY_7}, tick++);
+            assert(plans == plans_before + 1);
+            assert(planned_action == "upgrade" && planned_app == selected->id);
+            assert(session.screen == origin);
+            assert(detail.apply_plan_result(planned_action, planned_app, origin, 0, plan));
+            assert(session.screen == Screen::Confirm);
+            session.confirmation.focus() = 1;
+            input.handle({static_cast<uint32_t>(cancel)}, tick++);
+            if (cancel == KEY_ESC)
+                input.handle({KEY_ESC, 0, 0, true}, tick++);
+            assert(session.screen == origin);
+            assert(session.confirmation.action().empty());
+            assert(!session.exit_hint_visible && backs == backs_before_confirm);
+        }
+    }
+    session.screen = Screen::Detail;
+    input.handle({KEY_6}, tick++);
+    assert(planned_action == "reinstall");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Detail);
+
+    session.screen = Screen::Home;
+    selected->installed_version = selected->version;
+    input.handle({KEY_7}, tick++);
+    assert(planned_action == "reinstall");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Home);
+    selected->installed = false;
+    input.handle({KEY_7}, tick++);
+    assert(planned_action == "install");
+    detail.cancel_confirmation();
+    assert(session.screen == Screen::Home);
+    selected->installable = false;
+    const int plans_before_blocked = plans;
+    input.handle({KEY_7}, tick++);
+    assert(plans == plans_before_blocked);
+    assert(session.status.value() == "Only approved apps can install");
+    session.catalog.visible().clear();
+    input.handle({KEY_7}, tick++);
+    assert(plans == plans_before_blocked && session.status.value() == "No selected app");
+    session.catalog.rebuild_visible();
 
     // Root Esc opens a modal; dismissing it must not trigger the key's action.
     session.screen = Screen::Home;
