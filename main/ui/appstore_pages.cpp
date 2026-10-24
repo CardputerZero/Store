@@ -606,11 +606,14 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
     box(root, 0, 20, 320, 150, 0x081010, 0x081010, 0);
     draw_category();
     draw_icon();
+    const lv_font_t *header_font = store_font("", 12);
+    const int header_y = catalog_header::kCenterY - glyph_middle(header_font, 'H');
     label(root, "In category: " + std::to_string(model.show_empty ? 0 : model.selected_index + 1) +
-          "/" + std::to_string(model.app_count), 138, 26, 116, 18,
-          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
-    label(root, "All: " + std::to_string(model.total_count), 256, 26, 64, 18,
-          store_font("", 12), 0xFFFFFF, LV_LABEL_LONG_DOT);
+          "/" + std::to_string(model.app_count), 138, header_y, 116, header_font->line_height,
+          header_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
+    label(root, std::to_string(model.total_count), catalog_header::kCountX,
+          header_y, 318 - catalog_header::kCountX, header_font->line_height,
+          header_font, 0xFFFFFF, LV_LABEL_LONG_DOT);
     if (model.show_empty) {
         label(root, model.empty_message, 137, 76, 178, 40,
               store_font(model.empty_message, 14), 0xFFFFFF, LV_LABEL_LONG_WRAP);

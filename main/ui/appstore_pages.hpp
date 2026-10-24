@@ -19,6 +19,13 @@ namespace appstore_ui {
 
 void render_exit_hint(lv_obj_t *root);
 
+namespace catalog_header {
+constexpr int kCenterY = 34;
+constexpr int kCountIconX = 258;
+constexpr int kCountIconSize = 24;
+constexpr int kCountX = kCountIconX + kCountIconSize + 4;
+} // namespace catalog_header
+
 // Middle of a glyph's ink, measured from the top of the font's line box.
 int glyph_middle(const lv_font_t *font, uint32_t letter);
 
