@@ -166,6 +166,7 @@ PackageProgressViewModel AppStoreViewModelFactory::progress(uint32_t now) const
 {
     PackageProgressViewModel model;
     model.action = job_action_label(package_job_.action);
+    model.app_id = package_job_.app_id;
     model.title = package_job_.title.empty() ? "Selected app" : package_job_.title;
     model.detail = package_job_.pending_start ? "Preparing package worker" :
         (package_job_.detail.empty() ? "Waiting for package output" : package_job_.detail);

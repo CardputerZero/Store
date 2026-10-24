@@ -852,74 +852,80 @@ void AppDetailPage::render_confirmation(const PageRenderContext &context,
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
     const bool ownership_conflict =
         !model.lines.empty() && model.lines[0] == "FILE OWNERSHIP CONFLICT";
     const bool safety_warning = model.lines.size() >= 4 &&
         model.lines[1].find("cannot verify") != std::string::npos;
-    const uint32_t accent = ownership_conflict || safety_warning ? 0xF85149 : 0x58A6FF;
-    const uint32_t header = ownership_conflict || safety_warning ? 0x8B2F34 : 0x1F6FEB;
-    box(root, 18, 30, 284, 116, 0x111923, accent, 2, 4);
-    box(root, 18, 30, 284, 23, header, header, 0);
-    center_strong_label(root, ownership_conflict ? "FORCE OVERWRITE?" :
-                        (safety_warning ? "SAFETY WARNING" : "CONFIRM ACTION"),
-                        38, 35, 244, 15,
-                        &lv_font_montserrat_12, 0xFFFFFF);
-    int y = 60;
-    for (size_t index = 0; index < model.lines.size(); ++index) {
-        const std::string &line_text = model.lines[index];
+    const bool warning = ownership_conflict || safety_warning;
+    box(root, 18, 26, 284, 122, 0x1C1C1E, 0x2C2C2E, 1, 14);
+    const std::string heading = ownership_conflict ? "Force overwrite?" :
+        (safety_warning ? "Safety warning" : "Confirm action");
+    const lv_font_t *heading_font = store_font(heading, 15, true);
+    center_strong_label(root, heading, 28, 33, 264, heading_font->line_height,
+                        heading_font, warning ? 0xFF9F0A : 0xFFFFFF);
+    int y = 56;
+    for (size_t index = 0; index < model.lines.size() && index < 4; ++index) {
+        const std::string &text = model.lines[index];
         const bool action_line = index == 0 && !ownership_conflict;
-        center_strong_label(root, appstore::one_line(line_text, 44),
-                            28, y, 264, action_line ? 15 : 12,
-                            action_line ? &lv_font_montserrat_12 : &lv_font_montserrat_10,
-                            index >= 1 && safety_warning ? 0xFFD2D2 : 0xE6EDF3,
-                            LV_LABEL_LONG_DOT);
+        const lv_font_t *font = store_font(text, action_line ? 12 : 10);
+        marquee_label(root, text, 28, y, 264, font->line_height, font,
+                      action_line ? 0xFFFFFF : (warning ? 0xFFD2D2 : kSecondaryText),
+                      confirmation_marquees_[index], text, LV_TEXT_ALIGN_CENTER);
         y += action_line ? 18 : 14;
-        if (y > 111) break;
     }
-    const bool yes = model.focus == 0;
-    const bool no = model.focus == 1;
-    box(root, 62, 122, 84, 17, yes ? 0x2EA043 : 0x1A6A2A,
-        yes ? 0xCCCC33 : 0x2EA043, yes ? 2 : 1);
-    center_strong_label(root, "YES", 66, 125, 76, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
-    box(root, 174, 122, 84, 17, no ? 0x8B2F34 : 0x4B1F24,
-        no ? 0xCCCC33 : 0xF85149, no ? 2 : 1);
-    center_strong_label(root, "NO", 178, 125, 76, 12,
-                        &lv_font_montserrat_10, 0xFFFFFF);
+    const char *const buttons[] = {"Yes", "No"};
+    for (int i = 0; i < 2; ++i) {
+        const bool focused = model.focus == i;
+        const int x = 32 + i * 132;
+        const uint32_t fill = focused ? (i == 0 && warning ? 0xD63B30 : kSystemBlue)
+                                     : kSystemGray;
+        box(root, x, 118, 124, 26, fill, fill, 0, 8);
+        const lv_font_t *font = store_font(buttons[i], 13);
+        center_strong_label(root, buttons[i], x, 131 - glyph_middle(font, 'H'),
+                            124, font->line_height, font, 0xFFFFFF);
+    }
+    key_hint(root, "enter", "Confirm", 160, 159);
 }
 
 void AppDetailPage::render_progress(const PageRenderContext &context,
-                                    const PackageProgressViewModel &model)
+                                    const PackageProgressViewModel &model,
+                                    const std::function<void(lv_obj_t *, int, int, int)> &draw_logo)
 {
+    using namespace startup;
     context.prepare();
     context.draw_system_bar();
     lv_obj_t *root = screen();
-    box(root, 0, 20, 320, 150, 0x0D1117, 0x0D1117, 0);
-    box(root, 0, 20, 320, 22, 0x1F6FEB, 0x1F6FEB, 0);
-    label(root, "Package Operation", 8, 24, 190, 15, &lv_font_montserrat_12, 0xFFFFFF);
-    label(root, "Esc Exit", 262, 24, 52, 14, &lv_font_montserrat_10, 0xAECBFA);
-    center_strong_label(root, appstore::upper_ascii(model.action), 24, 50, 272, 18,
-                        &lv_font_montserrat_14, 0xCCCC33, LV_LABEL_LONG_DOT);
-    const std::string title = appstore::one_line(model.title, 26);
-    center_strong_label(root, title, 24, 70, 272, 16,
-                        context.font_for_text(title, &lv_font_montserrat_12),
-                        0xE6EDF3, LV_LABEL_LONG_DOT);
-    box(root, 28, 92, 264, 12, 0x30363D, 0x30363D, 0, 2);
+    box(root, 0, 20, 320, 150, kPageBackground, kPageBackground, 0);
+    draw_logo(root, (320 - kLogoSize) / 2, kLogoY, kLogoSize);
+    const std::string action = model.action + "...";
+    const lv_font_t *action_font = store_font(action, 15, true);
+    center_strong_label(root, action, 10, kTitleCapsY - glyph_top(action_font, 'H'),
+                        300, action_font->line_height, action_font, 0xFFFFFF);
+    const lv_font_t *title_font = store_font(model.title, 12);
+    marquee_label(root, model.title, 10, 99, 300, title_font->line_height, title_font,
+                  0xFFFFFF, progress_title_marquee_, model.action + model.title,
+                  LV_TEXT_ALIGN_CENTER);
+    constexpr int bar_y = 119;
+    lv_obj_t *track = box(root, kBarX, bar_y, kBarWidth, kBarHeight,
+                          kSystemGray, kSystemGray, 0, kBarHeight / 2);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE);
     if (model.progress >= 0) {
-        const int fill = std::max(4, std::min(264, model.progress * 264 / 100));
-        box(root, 28, 92, fill, 12, 0xCCCC33, 0xCCCC33, 0, 2);
+        box(track, 0, 0, progress_width(model.progress), kBarHeight,
+            kSystemBlue, kSystemBlue, 0, kBarHeight / 2);
     } else {
-        const int offset = static_cast<int>((lv_tick_get() / 90) % 216);
-        box(root, 28 + offset, 92, 48, 12, 0xCCCC33, 0xCCCC33, 0, 2);
+        sweep_progress(track);
     }
-    center_label(root, appstore::one_line(model.detail, 48), 18, 113, 284, 14,
-                 &lv_font_montserrat_10, 0xB8B8B8, LV_LABEL_LONG_DOT);
-    center_strong_label(root, "Elapsed " + std::to_string(model.elapsed_seconds) + "s",
-                        88, 132, 144, 13, &lv_font_montserrat_10, 0x58A6FF,
-                        LV_LABEL_LONG_DOT);
-    center_label(root, "Keep Store open until this finishes.", 18, 153, 284, 12,
-                 &lv_font_montserrat_10, 0xCCCC33, LV_LABEL_LONG_DOT);
+    const lv_font_t *detail_font = store_font(model.detail, 10);
+    marquee_label(root, model.detail, 10, 128, 300, detail_font->line_height, detail_font,
+                  kSecondaryText, progress_detail_marquee_, model.detail,
+                  LV_TEXT_ALIGN_CENTER);
+    const std::string footer = "Keep Store open \xC2\xB7 " +
+        std::to_string(model.elapsed_seconds) + "s";
+    const lv_font_t *footer_font = store_font(footer, 10);
+    center_label(root, footer, 10, kHintMiddle - glyph_middle(footer_font, 'H'),
+                 300, footer_font->line_height, footer_font, kSecondaryText,
+                 LV_LABEL_LONG_DOT);
 }
 
 void AppDetailPage::render_error(const PageRenderContext &context,

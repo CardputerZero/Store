@@ -99,7 +99,8 @@ public:
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);
     void render_progress(const PageRenderContext &context,
-                         const PackageProgressViewModel &model);
+                         const PackageProgressViewModel &model,
+                         const std::function<void(lv_obj_t *, int, int, int)> &draw_logo);
     void render_error(const PageRenderContext &context,
                       const ErrorDialogViewModel &model);
     void render_screenshot_overlay(const PageRenderContext &context,
@@ -110,6 +111,9 @@ private:
 
     HorizontalMarquee title_marquee_;
     HorizontalMarquee author_marquee_;
+    HorizontalMarquee confirmation_marquees_[4];
+    HorizontalMarquee progress_title_marquee_;
+    HorizontalMarquee progress_detail_marquee_;
     // The drawn page, cleared when the page content is deleted.
     lv_obj_t *document_ = nullptr;
     lv_obj_t *top_fade_ = nullptr;

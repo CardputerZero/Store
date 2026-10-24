@@ -166,7 +166,8 @@ void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
     if (!app) {
         center_strong_label(root, "-", kHomeIconX + 22, kHomeIconY + 24, 24, 22,
                             &lv_font_montserrat_20, 0x9A9A9A);
-    } else if (!images_.draw_app_icon(root, session_.app_dir, *app)) {
+    } else if (!images_.draw_app_icon(root, session_.app_dir, *app,
+                                      kHomeIconX, kHomeIconY, kHomeIconSize)) {
         center_strong_label(root, app_initial(*app), kHomeIconX, kHomeIconY + 21,
                             kHomeIconSize, 28, &lv_font_montserrat_20,
                             app->installed ? 0x52D05D : 0xFFFFFF);
@@ -233,9 +234,32 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
         case Screen::Confirm:
             detail_page_.render_confirmation(context(detail_page_), view_models_.confirmation());
             break;
-        case Screen::Progress:
-            detail_page_.render_progress(context(detail_page_), view_models_.progress(lv_tick_get()));
+        case Screen::Progress: {
+            const PackageProgressViewModel model = view_models_.progress(lv_tick_get());
+            const appstore::StoreApp *app = nullptr;
+            for (const auto &candidate : session_.catalog.apps()) {
+                if (candidate.id == model.app_id) {
+                    app = &candidate;
+                    break;
+                }
+            }
+            detail_page_.render_progress(
+                context(detail_page_), model,
+                [this, app](lv_obj_t *root, int x, int y, int size) {
+                    if (app && images_.draw_app_icon(root, session_.app_dir, *app, x, y, size))
+                        return;
+                    if (!app) {
+                        draw_store_icon(root, images_, x, y, size);
+                        return;
+                    }
+                    const lv_font_t *font = size >= 40 ? &lv_font_montserrat_20
+                                                      : &lv_font_montserrat_14;
+                    center_strong_label(root, app_initial(*app), x,
+                                        y + (size - font->line_height) / 2, size,
+                                        font->line_height, font, 0xFFFFFF);
+                });
             break;
+        }
         case Screen::ErrorDialog:
             detail_page_.render_error(context(detail_page_), view_models_.error());
             break;

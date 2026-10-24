@@ -93,6 +93,7 @@ struct ConfirmationViewModel {
 
 struct PackageProgressViewModel {
     std::string action;
+    std::string app_id;
     std::string title;
     std::string detail;
     int progress = -1;

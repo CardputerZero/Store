@@ -45,20 +45,20 @@ lv_obj_t *AppStoreImageRenderer::draw_packaged(lv_obj_t *root, const std::string
 }
 
 bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app_dir,
-                                          const appstore::StoreApp &app)
+                                          const appstore::StoreApp &app, int x, int y,
+                                          int size)
 {
 #if LV_USE_LODEPNG && LV_USE_FS_POSIX
     const std::string path = icon_file_path(app_dir, app);
-    if (path.empty()) return false;
-    constexpr int x = 39, y = 65, width = 60, height = 60;
+    if (path.empty() || size <= 0) return false;
     lv_obj_t *clip = lv_obj_create(root);
     lv_obj_remove_style_all(clip);
     lv_obj_set_pos(clip, x, y);
-    lv_obj_set_size(clip, width, height);
+    lv_obj_set_size(clip, size, size);
     lv_obj_clear_flag(clip, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(clip, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(clip, 0, 0);
-    lv_obj_set_style_radius(clip, 10, 0);
+    lv_obj_set_style_radius(clip, std::max(4, size / 6), 0);
     lv_obj_set_style_clip_corner(clip, true, 0);
     lv_obj_set_style_pad_all(clip, 0, 0);
     lv_obj_t *icon = lv_image_create(clip);
@@ -66,15 +66,17 @@ bool AppStoreImageRenderer::draw_app_icon(lv_obj_t *root, const std::string &app
     lv_obj_update_layout(icon);
     int image_width = lv_obj_get_width(icon);
     int image_height = lv_obj_get_height(icon);
-    if (image_width <= 0) image_width = 256;
-    if (image_height <= 0) image_height = 256;
-    int scale = std::min(width * 256 / image_width, height * 256 / image_height);
+    if (image_width <= 0) image_width = size;
+    if (image_height <= 0) image_height = size;
+    int scale = std::min(size * 256 / image_width, size * 256 / image_height);
     if (scale <= 0) scale = 1;
     lv_image_set_scale(icon, static_cast<uint16_t>(scale));
-    lv_obj_set_pos(icon, (width - image_width) / 2, (height - image_height) / 2);
+    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
+    lv_obj_set_pos(icon, 0, 0);
+    lv_obj_set_size(icon, size, size);
     return true;
 #else
-    (void)root; (void)app_dir; (void)app;
+    (void)root; (void)app_dir; (void)app; (void)x; (void)y; (void)size;
     return false;
 #endif
 }
