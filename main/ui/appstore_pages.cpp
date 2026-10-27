@@ -621,13 +621,13 @@ void CatalogDisplayPage::render(const PageRenderContext &context,
         marquee_label(root, model.name, 137, 58, 178, 27, store_font(model.name, 20, true),
                       0xFFFFFF, title_marquee_, model.name);
         label(root, model.version, 137, 86, 66, 20,
-              store_font(model.version, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+              store_font(model.version, 14), kVersionColor, LV_LABEL_LONG_DOT);
         marquee_label(root, model.author, 207, 86, 108, 20, store_font(model.author, 14),
-                      0xFFFFFF, author_marquee_, model.name + model.author);
+                      kMaintainerColor, author_marquee_, model.name + model.author);
         label(root, model.size, 137, 105, 68, 20,
-              store_font(model.size, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+              store_font(model.size, 14), kSizeColor, LV_LABEL_LONG_DOT);
         label(root, model.updated, 207, 105, 110, 20,
-              store_font(model.updated, 14), 0xFFFFFF, LV_LABEL_LONG_DOT);
+              store_font(model.updated, 14), kDateColor, LV_LABEL_LONG_DOT);
         if (model.update_available)
             label(root, "UPDATE AVAILABLE", 137, 126, 178, 11,
                   &lv_font_montserrat_10, 0xF0B429);
