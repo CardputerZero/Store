@@ -129,13 +129,31 @@ void AppStorePresenter::prepare(AppStoreUiPage &page)
 
 void AppStorePresenter::draw_category_selector(lv_obj_t *root)
 {
-    if (!images_.draw_packaged(root, "store_arrow_left.png", 14, 27))
-        strong_label(root, "<", 14, 24, 14, 18, store_font("", 20), 0xFF6A3D);
+    const auto draw_chevron = [&](const char *asset, const char *fallback, int x) {
+        if (lv_obj_t *arrow = images_.draw_packaged(root, asset, x, 0)) {
+            lv_obj_set_y(arrow, catalog_header::kCenterY - lv_obj_get_height(arrow) / 2);
+        } else {
+            const lv_font_t *font = store_font(fallback, 20);
+            strong_label(root, fallback, x,
+                         catalog_header::kCenterY - glyph_middle(font, fallback[0]),
+                         14, font->line_height, font, 0xFF6A3D);
+        }
+    };
+    draw_chevron("store_arrow_left.png", "<", 14);
     const std::string category = appstore::upper_ascii(session_.catalog.current_category_name());
-    marquee_label(root, category, 28, 24, 86, 20, store_font(category, 14, true), 0xFFFFFF,
+    const lv_font_t *font = store_font(category, 14, true);
+    marquee_label(root, category, 28, catalog_header::kCenterY - glyph_middle(font, 'H'),
+                  86, font->line_height, font, 0xFFFFFF,
                   category_marquee_, category, LV_TEXT_ALIGN_CENTER);
-    if (!images_.draw_packaged(root, "store_arrow_right.png", 116, 27))
-        strong_label(root, ">", 116, 24, 14, 18, store_font("", 20), 0xFF6A3D);
+    draw_chevron("store_arrow_right.png", ">", 116);
+    if (!draw_store_icon(root, images_, catalog_header::kCountIconX,
+                         catalog_header::kCenterY - catalog_header::kCountIconSize / 2,
+                         catalog_header::kCountIconSize)) {
+        const lv_font_t *icon_font = &lv_font_montserrat_14;
+        label(root, LV_SYMBOL_LIST, catalog_header::kCountIconX,
+              catalog_header::kCenterY - icon_font->line_height / 2,
+              catalog_header::kCountIconSize, icon_font->line_height, icon_font, 0xFFFFFF);
+    }
 }
 
 void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
@@ -148,7 +166,8 @@ void AppStorePresenter::draw_home_icon_panel(lv_obj_t *root,
     if (!app) {
         center_strong_label(root, "-", kHomeIconX + 22, kHomeIconY + 24, 24, 22,
                             &lv_font_montserrat_20, 0x9A9A9A);
-    } else if (!images_.draw_app_icon(root, session_.app_dir, *app)) {
+    } else if (!images_.draw_app_icon(root, session_.app_dir, *app,
+                                      kHomeIconX, kHomeIconY, kHomeIconSize)) {
         center_strong_label(root, app_initial(*app), kHomeIconX, kHomeIconY + 21,
                             kHomeIconSize, 28, &lv_font_montserrat_20,
                             app->installed ? 0x52D05D : 0xFFFFFF);
@@ -215,9 +234,32 @@ void AppStorePresenter::render(Screen screen, bool registry_operation_running)
         case Screen::Confirm:
             detail_page_.render_confirmation(context(detail_page_), view_models_.confirmation());
             break;
-        case Screen::Progress:
-            detail_page_.render_progress(context(detail_page_), view_models_.progress(lv_tick_get()));
+        case Screen::Progress: {
+            const PackageProgressViewModel model = view_models_.progress(lv_tick_get());
+            const appstore::StoreApp *app = nullptr;
+            for (const auto &candidate : session_.catalog.apps()) {
+                if (candidate.id == model.app_id) {
+                    app = &candidate;
+                    break;
+                }
+            }
+            detail_page_.render_progress(
+                context(detail_page_), model,
+                [this, app](lv_obj_t *root, int x, int y, int size) {
+                    if (app && images_.draw_app_icon(root, session_.app_dir, *app, x, y, size))
+                        return;
+                    if (!app) {
+                        draw_store_icon(root, images_, x, y, size);
+                        return;
+                    }
+                    const lv_font_t *font = size >= 40 ? &lv_font_montserrat_20
+                                                      : &lv_font_montserrat_14;
+                    center_strong_label(root, app_initial(*app), x,
+                                        y + (size - font->line_height) / 2, size,
+                                        font->line_height, font, 0xFFFFFF);
+                });
             break;
+        }
         case Screen::ErrorDialog:
             detail_page_.render_error(context(detail_page_), view_models_.error());
             break;

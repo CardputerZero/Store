@@ -19,6 +19,13 @@ namespace appstore_ui {
 
 void render_exit_hint(lv_obj_t *root);
 
+namespace catalog_header {
+constexpr int kCenterY = 34;
+constexpr int kCountIconX = 258;
+constexpr int kCountIconSize = 24;
+constexpr int kCountX = kCountIconX + kCountIconSize + 4;
+} // namespace catalog_header
+
 // Middle of a glyph's ink, measured from the top of the font's line box.
 int glyph_middle(const lv_font_t *font, uint32_t letter);
 
@@ -92,7 +99,8 @@ public:
     void render_confirmation(const PageRenderContext &context,
                              const ConfirmationViewModel &model);
     void render_progress(const PageRenderContext &context,
-                         const PackageProgressViewModel &model);
+                         const PackageProgressViewModel &model,
+                         const std::function<void(lv_obj_t *, int, int, int)> &draw_logo);
     void render_error(const PageRenderContext &context,
                       const ErrorDialogViewModel &model);
     void render_screenshot_overlay(const PageRenderContext &context,
@@ -103,6 +111,9 @@ private:
 
     HorizontalMarquee title_marquee_;
     HorizontalMarquee author_marquee_;
+    HorizontalMarquee confirmation_marquees_[4];
+    HorizontalMarquee progress_title_marquee_;
+    HorizontalMarquee progress_detail_marquee_;
     // The drawn page, cleared when the page content is deleted.
     lv_obj_t *document_ = nullptr;
     lv_obj_t *top_fade_ = nullptr;

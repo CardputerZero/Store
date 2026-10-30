@@ -21,7 +21,7 @@ public:
     // Returns the image so callers can align it by its real size; null on failure.
     lv_obj_t *draw_packaged(lv_obj_t *root, const std::string &name, int x, int y);
     bool draw_app_icon(lv_obj_t *root, const std::string &app_dir,
-                       const appstore::StoreApp &app);
+                       const appstore::StoreApp &app, int x, int y, int size);
     bool draw_screenshot(lv_obj_t *root, const std::string &path);
     // Returns the aspect-preserving row height, or zero when decoding fails.
     int draw_thumbnail(lv_obj_t *root, const std::string &path, int x, int y);
