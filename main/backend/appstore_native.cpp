@@ -5,6 +5,7 @@
  */
 
 #include "appstore_native.hpp"
+#include "appstore_package_stream.hpp"
 #include "appstore_process_entry.hpp"
 
 // Native registry, networking, cache, and package-management backend.
@@ -52,6 +53,7 @@ namespace {
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
+using package_stream::apply_child_locale;
 
 constexpr const char *kDefaultUrl = "https://cardputerzero.github.io/generated/registry.json";
 constexpr const char *kDefaultName = "CardputerZero Hub";
@@ -284,6 +286,7 @@ int run_bounded(const std::vector<std::string> &args, int timeout_seconds)
         prctl(PR_SET_PDEATHSIG, SIGTERM);
         if (getppid() != parent) _exit(128 + SIGTERM);
 #endif
+        apply_child_locale();
         auto view = argv_view(args);
         execvp(view[0], const_cast<char *const *>(view.data()));
         _exit(127);
@@ -332,6 +335,7 @@ int run_cancellable(const std::vector<std::string> &args, const std::atomic<bool
         prctl(PR_SET_PDEATHSIG, SIGTERM);
         if (getppid() != parent) _exit(128 + SIGTERM);
 #endif
+        apply_child_locale();
         auto view = argv_view(args);
         execvp(view[0], const_cast<char *const *>(view.data()));
         _exit(127);
@@ -373,6 +377,7 @@ std::pair<int, std::string> capture(const std::vector<std::string> &args, size_t
         dup2(pipes[1], STDOUT_FILENO);
         dup2(pipes[1], STDERR_FILENO);
         close(pipes[1]);
+        apply_child_locale();
         auto view = argv_view(args);
         execvp(view[0], const_cast<char *const *>(view.data()));
         _exit(127);
@@ -394,6 +399,71 @@ json builtin_registry(const std::string &region)
     bool cn = region == "CN";
     return {{"name", cn ? kCnName : kDefaultName}, {"url", cn ? kCnUrl : kDefaultUrl},
             {"enabled", true}, {"builtin", true}, {"region", cn ? "CN" : "default"}};
+}
+
+// Auto follows the system timezone name.  Only Chinese IANA zones select the
+// CN mirror; other UTC+08:00 zones (Asia/Singapore, Australia/Perth, ...) keep
+// using GitHub.  The name comes from TZ, /etc/timezone, or /etc/localtime, so no
+// network lookup and no external IP disclosure are needed.
+std::string trimmed_copy(std::string value)
+{
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(0, 1);
+    return value;
+}
+
+std::string timezone_from_zoneinfo_path(const std::string &value)
+{
+    const std::string marker = "zoneinfo/";
+    const size_t position = value.find(marker);
+    return position == std::string::npos ? "" : value.substr(position + marker.size());
+}
+
+std::string local_timezone_name()
+{
+    if (const char *environment = std::getenv("TZ"); environment && environment[0]) {
+        std::string value = trimmed_copy(environment);
+        if (!value.empty() && value.front() == ':') value.erase(value.begin());
+        if (!value.empty()) {
+            if (value.front() == '/') {
+                const std::string zone = timezone_from_zoneinfo_path(value);
+                if (!zone.empty()) return zone;
+            }
+            return value;
+        }
+    }
+    std::ifstream timezone_file("/etc/timezone");
+    std::string value;
+    if (std::getline(timezone_file, value)) {
+        value = trimmed_copy(value);
+        if (!value.empty()) return value;
+    }
+    std::error_code error;
+    const fs::path symlink = fs::read_symlink("/etc/localtime", error);
+    if (!error) {
+        const std::string zone = timezone_from_zoneinfo_path(symlink.lexically_normal().string());
+        if (!zone.empty()) return zone;
+    }
+    error.clear();
+    const fs::path canonical = fs::canonical("/etc/localtime", error);
+    if (!error) {
+        const std::string zone = timezone_from_zoneinfo_path(canonical.string());
+        if (!zone.empty()) return zone;
+    }
+    return "";
+}
+
+bool timezone_is_china()
+{
+    static const std::set<std::string> china_zones = {
+        "Asia/Shanghai", "Asia/Chongqing", "Asia/Harbin",
+        "Asia/Urumqi", "Asia/Kashgar", "Asia/Hong_Kong", "Asia/Macau", "PRC"};
+    return china_zones.count(local_timezone_name()) != 0;
+}
+
+std::string auto_region_preference()
+{
+    return timezone_is_china() ? "CN" : "default";
 }
 
 json normalize_config(const json &config)
@@ -940,8 +1010,15 @@ std::vector<json> sync_all()
     }
     const json original_config = config;
     const std::string mode = config.value("region", "auto");
-    const std::vector<std::string> candidates = mode == "auto"
-        ? std::vector<std::string>{"default", "CN"} : std::vector<std::string>{mode};
+    std::vector<std::string> candidates;
+    if (mode == "auto") {
+        // Auto prefers the mirror matching the local timezone and falls back
+        // to the other built-in mirror when that catalog is unusable.
+        const std::string preferred = auto_region_preference();
+        candidates = {preferred, preferred == "CN" ? "default" : "CN"};
+    } else {
+        candidates = {mode};
+    }
     json catalog;
     json source;
     std::string errors;
@@ -1069,8 +1146,10 @@ PackageState package_state(const std::string &package)
     if (package.empty()) return {false, "", true};
     auto [rc, output] = capture({"dpkg-query", "-W", "-f=${db:Status-Abbrev}\t${Version}", package}, 8192);
     if (rc != 0) {
-        const bool absent = rc == 1 && output.find("no packages found matching") != std::string::npos;
-        return {false, "", absent};
+        // dpkg-query exits 1 when the package is not known to dpkg.  The
+        // accompanying message is translated (e.g. under zh_CN.UTF-8), so the
+        // exit code is the only stable signal.
+        return {false, "", rc == 1};
     }
     size_t tab = output.find('\t');
     std::string status = tab == std::string::npos ? output : output.substr(0, tab);
@@ -1331,6 +1410,22 @@ std::string deb_field(const fs::path &path, const std::string &name)
     return result.second;
 }
 
+// Raised when another package transaction holds the lock.  It carries the
+// pending record so callers can tell the UI what is still running instead of
+// reporting a generic failure.
+class TransactionBusy : public std::runtime_error {
+public:
+    TransactionBusy(const std::string &message, json pending)
+        : std::runtime_error(message), pending_(std::move(pending))
+    {
+    }
+
+    const json &pending() const { return pending_; }
+
+private:
+    json pending_;
+};
+
 void lock_transaction_at(int &fd, const fs::path &lock)
 {
     fs::create_directories(lock.parent_path());
@@ -1344,8 +1439,13 @@ void lock_transaction_at(int &fd, const fs::path &lock)
             throw std::runtime_error("unable to lock package transaction");
         }
         if (std::chrono::steady_clock::now() >= deadline) {
+            // The pending file lives beside the lock in every invocation mode
+            // (the privileged helper locks the Store transaction directory).
+            const json pending = read_json(lock.parent_path() / "pending-package.json");
             close(fd); fd = -1;
-            throw std::runtime_error("package transaction is still busy; retry after the package manager exits");
+            throw TransactionBusy(
+                "package transaction is still busy; retry after the package manager exits",
+                pending);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
@@ -1355,6 +1455,20 @@ void lock_transaction(int &fd)
 {
     ensure_dirs();
     lock_transaction_at(fd, state_dir() / "package-transaction.lock");
+}
+
+// Best-effort variant for reconciliation: never block the UI behind a helper
+// that is still installing packages in the background.
+bool try_lock_transaction(int &fd)
+{
+    ensure_dirs();
+    const fs::path lock = state_dir() / "package-transaction.lock";
+    fd = ::open(lock.c_str(), O_CREAT | O_RDWR, 0644);
+    if (fd < 0) return false;
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) return true;
+    close(fd);
+    fd = -1;
+    return false;
 }
 
 void unlock_transaction(int fd) { if (fd >= 0) { flock(fd, LOCK_UN); close(fd); } }
@@ -1560,6 +1674,14 @@ std::string prepare_package(const std::string &action, const std::string &id, in
             emit_pending_package_job(out, pending);
         }
         rc = 0;
+    } catch (const TransactionBusy &busy) {
+        const json &pending = busy.pending();
+        emit(out, "PENDING_BUSY",
+             pending.is_object() ? pending.value("app_id", "") : "",
+             pending.is_object() ? pending.value("action", "") : "",
+             pending.is_object() ? pending.value("package", "") : "");
+        emit(out, "ERROR", busy.what(), 1);
+        rc = 1;
     } catch (const std::exception &error) { emit(out, "ERROR", error.what(), 1); rc = 1; }
     unlock_transaction(fd);
     return out.str();
@@ -1870,6 +1992,7 @@ int package_helper(const std::string &action, const std::string &value, bool rei
         pending.erase("helper_failed");
         pending.erase("helper_exit_code");
         pending.erase("helper_failed_at");
+        pending.erase("helper_timed_out");
         write_json(path, pending);
         if (repairing) {
             const int result = repair_package_state(pending, path);
@@ -1911,7 +2034,7 @@ int package_helper(const std::string &action, const std::string &value, bool rei
                 auto audit = capture({"dpkg", "--audit"}, 64 * 1024);
                 if (audit.first != 0 || !audit.second.empty())
                     throw std::runtime_error("cannot resolve package dependencies while dpkg has unfinished packages");
-                command = {"apt-get", "-y"};
+                command = {"apt-get", "-y", "-o", "APT::Status-Fd=1"};
                 if (force_overwrite)
                     command.insert(command.end(), {"-o", "Dpkg::Options::=--force-overwrite"});
                 if (reinstall) command.push_back("--reinstall");
@@ -1922,14 +2045,42 @@ int package_helper(const std::string &action, const std::string &value, bool rei
         std::printf("PROGRESS\tpackage-manager\t0\t0\t-1\t%s package\n",
                     action == "install" ? "Installing" : "Removing");
         std::fflush(stdout);
-        int result = run_bounded(
-            command, bounded_seconds("M5APPSTORE_PACKAGE_TIMEOUT", 600));
+        // Dependency downloads on a slow link routinely need well over the old
+        // 10-minute default; a timeout must be reported as a timeout, never as
+        // a plain package failure.
+        const int timeout_seconds = bounded_seconds("M5APPSTORE_PACKAGE_TIMEOUT", 3600, 7200);
+        std::string last_error;
+        std::mutex progress_mutex;
+        auto on_line = [&](const std::string &line) {
+            std::lock_guard<std::mutex> lock(progress_mutex);
+            const package_stream::ProgressUpdate update = package_stream::parse_progress_line(line);
+            if (update.error) {
+                last_error = package_stream::truncate_error_line(update.message);
+                return;
+            }
+            if (!update.recognized) return;
+            const std::string progress = package_stream::format_progress_line(update);
+            std::fwrite(progress.data(), 1, progress.size(), stdout);
+            std::fflush(stdout);
+        };
+        auto on_heartbeat = [&]() {
+            std::lock_guard<std::mutex> lock(progress_mutex);
+            const std::string heartbeat =
+                "PROGRESS\tpackage-manager\t0\t0\t-1\tStill installing package (dependency download may be slow)\n";
+            std::fwrite(heartbeat.data(), 1, heartbeat.size(), stdout);
+            std::fflush(stdout);
+        };
+        const int result = package_stream::run_streaming_command(
+            command, timeout_seconds, on_line, on_heartbeat);
         if (result != 0) {
             pending["helper_failed"] = true;
             pending["helper_exit_code"] = result;
             pending["helper_failed_at"] = now_text();
+            if (result == 124) pending["helper_timed_out"] = true;
             write_json(path, pending);
-            throw std::runtime_error("package manager failed with exit code " + std::to_string(result));
+            if (result == 124)
+                throw std::runtime_error(package_stream::timeout_failure_message(timeout_seconds));
+            throw std::runtime_error(package_stream::failure_message(result, last_error));
         }
         const PackageState resulting_state = package_state(pending.value("package", ""));
         const std::string expected_version = pending.value("expected_package_version", "");
@@ -1953,8 +2104,19 @@ int package_helper(const std::string &action, const std::string &value, bool rei
                     failed.value("transaction_id", "") == transaction &&
                     !failed.value("helper_completed", false)) {
                     const PackageState state = package_state(failed.value("package", ""));
-                    if (package_state_unchanged(failed, state) &&
-                        !failed.value("repair_scripts_quarantined", false)) {
+                    // A timeout is not "state unchanged, forget it": keep the
+                    // pending record (helper_timed_out/helper_exit_code) so the
+                    // interrupted operation can be diagnosed and retried, but do
+                    // not offer a repair the package does not need.
+                    const bool timed_out = failed.value("helper_timed_out", false);
+                    if (timed_out) {
+                        failed["helper_failed"] = false;
+                        failed["helper_started"] = false;
+                        write_json(path, failed);
+                        std::fprintf(stderr,
+                                     "WARNING\tpackage manager timed out; pending transaction kept for retry\n");
+                    } else if (package_state_unchanged(failed, state) &&
+                               !failed.value("repair_scripts_quarantined", false)) {
                         fs::remove(path);
                         std::fprintf(stderr,
                                      "WARNING\tfailed package command left package state unchanged\n");
@@ -2102,7 +2264,9 @@ void reconcile_pending()
     std::string app_id;
     std::string tx;
     try {
-        lock_transaction(fd);
+        // Best-effort: a helper that is still installing in the background owns
+        // the lock, and opening the Store must not wait 30s for it to finish.
+        if (!try_lock_transaction(fd)) return;
         if (!fs::exists(pending_path())) {
             unlock_transaction(fd);
             return;

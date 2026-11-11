@@ -55,9 +55,13 @@ bool SudoPackageRunner::start(const std::string &backend_executable)
     argv.reserve(storage.size() + 1);
     for (const std::string &arg : storage) argv.push_back(arg.c_str());
     argv.push_back(nullptr);
+    // Must stay above the backend package-manager timeout
+    // (M5APPSTORE_PACKAGE_TIMEOUT: default 3600s, maximum 7200s) so the sudo
+    // helper is not killed while apt/dpkg is still working: 2h + 5min margin.
+    constexpr int kExecTimeoutMs = 7500000;
     const int rc = cp0_sudo_run_argv_async_ex(
         argv.data(), CP0_SUDO_CALLBACK_LVGL, output_callback, complete_callback, this,
-        60 * 1000, 15 * 60 * 1000, &job_.sudo_request_id);
+        60 * 1000, kExecTimeoutMs, &job_.sudo_request_id);
     if (rc != 0) {
         job_.append_output("ERROR\tUnable to start sudo request\n");
         job_.set_completion(rc, true);

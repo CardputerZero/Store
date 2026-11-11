@@ -5,6 +5,7 @@
  */
 
 #include "json.hpp"
+#include "../main/backend/appstore_package_stream.hpp"
 #ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
 #include "appstore_native.hpp"
 #include <thread>
@@ -115,7 +116,6 @@ esac
 marker="$M5APPSTORE_CACHE_DIR/network-drop-marker"
 if [ "${FAKE_DROP_DURING_ASSETS:-0}" = 1 ] && [ -e "$marker" ]; then exit 7; fi
 case "$url" in
-  *ipinfo.io*) exit 99;;
   *demo.deb*) cp "$FAKE_DEB" "$out";;
   *.png*) [ -z "${FAKE_ASSET_SLEEP:-}" ] || sleep "$FAKE_ASSET_SLEEP"
           [ "${FAKE_ASSET_FAIL:-0}" = 0 ] || exit 22; printf 'fake icon' > "$out";;
@@ -125,8 +125,9 @@ esac
 )",0755);
     text(root/"bin/dpkg-query", R"(#!/bin/sh
 set -eu
+if [ -n "${FAKE_DPKG_LOCALE_LOG:-}" ]; then printf '%s\n' "${LC_ALL:-}" >> "$FAKE_DPKG_LOCALE_LOG"; fi
 if [ "$1" = -L ]; then [ "${FAKE_FILES_FAIL:-0}" = 0 ] || exit 2; printf '/usr/bin/demo-package\n/usr/share/APPLaunch/applications/demo.desktop\n'; exit; fi
-case "${FAKE_DPKG_MODE:-absent}" in installed) printf '%s\t%s\n' "${FAKE_STATUS:-ii }" "${FAKE_VERSION:-1.2.0}";; un) printf 'un \t0.1.0\n';; error) echo 'database error' >&2;exit 2;; *) echo 'no packages found matching' >&2;exit 1;; esac
+case "${FAKE_DPKG_MODE:-absent}" in installed) printf '%s\t%s\n' "${FAKE_STATUS:-ii }" "${FAKE_VERSION:-1.2.0}";; un) printf 'un \t0.1.0\n';; localized-absent) printf 'dpkg-query: 没有找到与 demo-package 相匹配的软件包\n' >&2; exit 1;; error) echo 'database error' >&2;exit 2;; *) echo 'no packages found matching' >&2;exit 1;; esac
 )",0755);
     text(root/"bin/dpkg-deb", R"(#!/bin/sh
 case "$3" in Package) echo "${FAKE_DEB_PACKAGE:-demo-package}";; Version) echo "${FAKE_DEB_VERSION:-1.2.0}";; Pre-Depends|Depends) echo -n "${FAKE_DEPENDS:-}";; *) exit 1;; esac
@@ -136,6 +137,7 @@ case "$3" in Package) echo "${FAKE_DEB_PACKAGE:-demo-package}";; Version) echo "
     setenv("M5APPSTORE_STATE_DIR",(root/"state").c_str(),1); setenv("M5APPSTORE_CACHE_DIR",(root/"cache").c_str(),1);
     setenv("M5APPSTORE_APP_ROOT",(root/"root").c_str(),1); setenv("M5APPSTORE_HTTP_TRANSPORT","curl",1);
     setenv("M5APPSTORE_LOCALE","en",1);
+    setenv("TZ","Asia/Tokyo",1);
 }
 static void registry_cases() {
     CHECK(has(call({"--regions"}),"REGION\tauto\tAuto"));
@@ -215,7 +217,6 @@ static std::vector<std::string> catalog_requests() {
     std::vector<std::string> requests;
     std::string line;
     while (std::getline(input, line)) {
-        CHECK(line.find("ipinfo") == std::string::npos);
         if (line.find("registry.json") != std::string::npos) requests.push_back(line.substr(0, line.find('?')));
     }
     return requests;
@@ -421,9 +422,129 @@ static void cancellation_cases() {
     CHECK(call({"--set-region","default"}).rc==0);
 }
 #endif
+static void region_detection_cases() {
+    const std::string github="https://cardputerzero.github.io/generated/registry.json";
+    const std::string oss="https://cardputer-zero-repo.oss-cn-shenzhen.aliyuncs.com/packages/cn/registry.json";
+    auto expect_source=[&](const char *zone, const std::string &expected) {
+        setenv("TZ",zone,1);
+        text(root/"cache/network.log","");
+        CHECK(call({"--sync"}).rc==0);
+        CHECK(catalog_requests()==std::vector<std::string>{expected});
+    };
+    // Chinese IANA zone names select the CN mirror, including the backward
+    // aliases and the zoneinfo path form.
+    CHECK(call({"--set-region","auto"}).rc==0);
+    for (const char *zone : {"Asia/Shanghai","Asia/Chongqing","Asia/Harbin",
+                             "Asia/Urumqi","Asia/Kashgar","Asia/Hong_Kong","Asia/Macau","PRC"})
+        expect_source(zone,oss);
+    setenv("TZ",":/usr/share/zoneinfo/Asia/Shanghai",1);
+    text(root/"cache/network.log","");
+    CHECK(call({"--sync"}).rc==0);
+    CHECK(catalog_requests()==std::vector<std::string>{oss});
+    // Other UTC+08:00 zones are not China and keep using GitHub, as does the
+    // fixed Etc/GMT-8 zone written by the OOBE for the UTC+08:00 offset.
+    for (const char *zone : {"Asia/Singapore","Australia/Perth","Etc/GMT-8","Asia/Tokyo","UTC"})
+        expect_source(zone,github);
+    CHECK(has(call({"--regions"}),"REGION\tauto\tAuto\t"+github+"\tdefault"));
+    // Explicit regions stay pinned regardless of the local timezone.
+    setenv("TZ","Asia/Shanghai",1);
+    CHECK(call({"--set-region","default"}).rc==0);
+    text(root/"cache/network.log","");
+    CHECK(call({"--sync"}).rc==0);
+    CHECK(catalog_requests()==std::vector<std::string>{github});
+    setenv("TZ","Asia/Tokyo",1);
+    CHECK(call({"--set-region","CN"}).rc==0);
+    text(root/"cache/network.log","");
+    CHECK(call({"--sync"}).rc==0);
+    CHECK(catalog_requests()==std::vector<std::string>{oss});
+    // Restore the non-CN/auto baseline used by later cases.
+    setenv("TZ","Asia/Tokyo",1);
+    CHECK(call({"--set-region","auto"}).rc==0);
+    CHECK(call({"--sync"}).rc==0);
+}
 static void plan_cases() {
     Result p=call({"--plan","demo"}); CHECK(p.rc==0&&has(p,"PLAN\tapp-id\tDemo Local\t1.2.0\t42K")); CHECK(has(p,"lib-one,lib-two"));
     CHECK(call({"--plan","blocked"}).rc!=0); CHECK(call({"--plan","missing"}).rc!=0);
+}
+static void package_stream_cases() {
+    using appstore::package_stream::ProgressUpdate;
+    using appstore::package_stream::parse_progress_line;
+    const ProgressUpdate dl=parse_progress_line("dlstatus:1:42:Fetching http://deb.invalid/lib.deb");
+    CHECK(dl.recognized&&!dl.error&&dl.phase=="dependencies"&&dl.percent==42);
+    CHECK(dl.message=="Downloading dependencies: Fetching http://deb.invalid/lib.deb");
+    CHECK(appstore::package_stream::format_progress_line(dl)==
+          "PROGRESS\tdependencies\t0\t0\t42\tDownloading dependencies: Fetching http://deb.invalid/lib.deb\n");
+    const ProgressUpdate pm=parse_progress_line("pmstatus:flint:73:Setting up flint (1.0)");
+    CHECK(pm.recognized&&pm.phase=="package-manager"&&pm.percent==73&&pm.message=="Setting up flint (1.0)");
+    CHECK(appstore::package_stream::format_progress_line(pm)==
+          "PROGRESS\tpackage-manager\t0\t0\t73\tSetting up flint (1.0)\n");
+    const ProgressUpdate bad_pct=parse_progress_line("pmstatus:flint:oops:Working");
+    CHECK(bad_pct.recognized&&bad_pct.percent==-1&&bad_pct.message=="Working");
+    CHECK(parse_progress_line("dlstatus:1:120:done").percent==100);
+    const ProgressUpdate dl_float=parse_progress_line("dlstatus:1:9.05654:Downloading file 1 of 3");
+    CHECK(dl_float.recognized&&dl_float.percent==9&&
+          dl_float.message=="Downloading dependencies: Downloading file 1 of 3");
+    CHECK(parse_progress_line("pmerror: /tmp/x.deb : 75% : trying to overwrite").error);
+    CHECK(parse_progress_line("pmconffile:conffile:10:prompt").recognized==false);
+    for (const char *line : {"Get:1 http://deb.invalid bookworm/main arm64 flint arm64 1.0",
+                             "Unpacking flint (1.0) over (0.9)",
+                             "Setting up flint (1.0)",
+                             "Removing demo-package ...",
+                             "Preparing to unpack .../flint_1.0_arm64.deb ..."}) {
+        const ProgressUpdate ordinary=parse_progress_line(line);
+        CHECK(ordinary.recognized&&ordinary.percent==-1&&ordinary.phase==
+              (std::string(line).rfind("Get:",0)==0 ? "dependencies" : "package-manager"));
+    }
+    CHECK(parse_progress_line("E: Sub-process /usr/bin/dpkg returned an error code (1)").error);
+    CHECK(parse_progress_line("dpkg: error processing package flint").error);
+    CHECK(!parse_progress_line("Reading package lists...").recognized);
+    CHECK(appstore::package_stream::timeout_failure_message(3600)==
+          "package manager timed out after 3600 seconds; it was stopped before completion");
+    const std::string truncated=appstore::package_stream::truncate_error_line(std::string(300,'x'));
+    CHECK(truncated.size()==203&&truncated.substr(200)=="...");
+    CHECK(appstore::package_stream::failure_message(100,"E: boom")==
+          "package manager failed with exit code 100: E: boom");
+    // Real subprocess coverage for the stream runner (no root required).
+    std::vector<std::string> lines; int rc=0; int heartbeats=0;
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","printf 'Unpacking demo-package'; exit 3"}, 10,
+        [&](const std::string &line){ lines.push_back(line); }, nullptr);
+    CHECK(rc==3&&lines.size()==1&&lines[0]=="Unpacking demo-package");
+    lines.clear();
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","i=0; while [ $i -lt 400 ]; do printf 'line %s\\n' $i; i=$((i+1)); done; exit 0"}, 20,
+        [&](const std::string &line){ lines.push_back(line); }, nullptr);
+    CHECK(rc==0&&lines.size()==400&&lines.back()=="line 399");
+    const auto timeout_started=std::chrono::steady_clock::now();
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","exec sleep 30"}, 1, [](const std::string &){}, nullptr);
+    CHECK(rc==124&&std::chrono::steady_clock::now()-timeout_started<std::chrono::seconds(6));
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","trap '' TERM; sleep 30"}, 1, [](const std::string &){}, nullptr);
+    CHECK(rc==124);
+    // A child that closes its stdio but keeps running must still hit the
+    // deadline instead of blocking the helper forever.
+    const auto closed_started=std::chrono::steady_clock::now();
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","exec >/dev/null 2>&1; sleep 30"}, 1, [](const std::string &){}, nullptr);
+    CHECK(rc==124&&std::chrono::steady_clock::now()-closed_started<std::chrono::seconds(6));
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","printf 'dlstatus:1:5:download\\n'; sleep 6; exit 0"}, 10,
+        [](const std::string &){}, [&](){ ++heartbeats; });
+    CHECK(rc==0&&heartbeats>=1);
+    // Fake apt-get output through the same parse/format path the helper uses.
+    std::string progress_output; int errors=0;
+    rc=appstore::package_stream::run_streaming_command(
+        {"/bin/sh","-c","printf 'dlstatus:1:10:Connecting\\npmstatus:flint:40:Unpacking flint\\nUnpacking flint (1.0)\\nE: boom\\n'; exit 1"}, 10,
+        [&](const std::string &line){
+            const ProgressUpdate update=parse_progress_line(line);
+            if (update.error) { ++errors; return; }
+            if (update.recognized) progress_output+=appstore::package_stream::format_progress_line(update);
+        }, nullptr);
+    CHECK(rc==1&&errors==1);
+    CHECK(progress_output.find("PROGRESS\tdependencies\t0\t0\t10\tDownloading dependencies: Connecting\n")!=std::string::npos);
+    CHECK(progress_output.find("PROGRESS\tpackage-manager\t0\t0\t40\tUnpacking flint\n")!=std::string::npos);
+    CHECK(progress_output.find("PROGRESS\tpackage-manager\t0\t0\t-1\tUnpacking flint (1.0)\n")!=std::string::npos);
 }
 static void complete(const fs::path &p) { json v=load(p);v["helper_completed"]=true;save(p,v); }
 static json pending_job(const std::string &id, bool previously_installed=false, const std::string &previous_version="") {
@@ -439,6 +560,18 @@ static void package_cases() {
     CHECK(call({"--repair-package-transaction","blocked-id"}).rc!=0&&fs::exists(pending));
     Result repaired=call({"--repair-package-transaction","app-id"});
     CHECK(repaired.rc==0&&has(repaired,"PACKAGE_REPAIRED\tapp-id")&&!fs::exists(pending));
+    // Regression: dpkg-query exits 1 with a Chinese diagnostic under zh_CN.
+    // The backend must treat rc==1 as "not installed" without reading the text,
+    // and the child process must run with LC_ALL=C.
+    fs::remove(root/"state/dpkg-locale.log");
+    setenv("FAKE_DPKG_LOCALE_LOG",(root/"state/dpkg-locale.log").c_str(),1);
+    setenv("FAKE_DPKG_MODE","localized-absent",1);
+    Result localized=call({"--prepare-package","install","demo"});
+    CHECK(localized.rc==0&&has(localized,"PACKAGE_JOB\tinstall")&&fs::exists(pending));
+    { std::ifstream locale_log(root/"state/dpkg-locale.log"); std::string first;
+      CHECK(std::getline(locale_log,first)&&first=="C"); }
+    unsetenv("FAKE_DPKG_LOCALE_LOG"); setenv("FAKE_DPKG_MODE","absent",1);
+    fs::remove(pending);
     fs::create_directories(root/"cache/downloads");
     fs::copy_file(root/"demo.deb", root/"cache/downloads/cached-demo.deb",
                   fs::copy_options::overwrite_existing);
@@ -509,20 +642,30 @@ static void package_cases() {
     unsetenv("FAKE_CURL_SLEEP"); CHECK(!fs::exists(pending));
     Result after_kill=call({"--prepare-package","install","demo"}); CHECK(after_kill.rc==0&&!tx(after_kill).empty());
     int ready[2]; CHECK(pipe(ready)==0); pid_t holder=fork(); CHECK(holder>=0);
-    if (!holder) { close(ready[0]); int lockfd=open((root/"state/package-transaction.lock").c_str(),O_RDWR|O_CREAT,0644); if(lockfd<0||flock(lockfd,LOCK_EX)!=0)_exit(2); write(ready[1],"x",1); sleep(5); _exit(0); }
+    if (!holder) { close(ready[0]); int lockfd=open((root/"state/package-transaction.lock").c_str(),O_RDWR|O_CREAT,0644); if(lockfd<0||flock(lockfd,LOCK_EX)!=0)_exit(2); write(ready[1],"x",1); sleep(40); _exit(0); }
     close(ready[1]); char marker=0; CHECK(read(ready[0],&marker,1)==1); close(ready[0]);
     setenv("M5APPSTORE_LOCK_TIMEOUT","1",1); Result busy=call({"--prepare-package","install","demo"});
-    CHECK(busy.rc!=0&&has(busy,"package transaction is still busy")); unsetenv("M5APPSTORE_LOCK_TIMEOUT");
+    CHECK(busy.rc!=0&&has(busy,"package transaction is still busy"));
+    CHECK(has(busy,"PENDING_BUSY\tapp-id\tinstall\tdemo-package"));
+    CHECK(has(busy,"ERROR\tpackage transaction is still busy"));
+    // While the background helper owns the lock, opening the Store (--summary)
+    // must not wait for the lock: reconciliation is best-effort.
+    setenv("M5APPSTORE_LOCK_TIMEOUT","30",1);
+    const auto summary_started=std::chrono::steady_clock::now();
+    Result held_summary=call({"--summary"});
+    CHECK(held_summary.rc==0);
+    CHECK(std::chrono::steady_clock::now()-summary_started<std::chrono::seconds(5));
+    unsetenv("M5APPSTORE_LOCK_TIMEOUT");
     kill(holder,SIGTERM); int holder_status=0; CHECK(waitpid(holder,&holder_status,0)==holder); fs::remove(pending);
     CHECK(call({"--install","demo"}).rc!=0); CHECK(has(call({"--package-helper","install"}),"package helper requires root"));
 }
 int main(int argc,char **argv) {
     CHECK(argc==2); binary=fs::absolute(argv[1]); char t[]="/tmp/appstore-cpp-parity.XXXXXX"; char *p=mkdtemp(t);CHECK(p);root=p;
-    fixture();registry_cases();source_selection_cases();
+    fixture();registry_cases();source_selection_cases();region_detection_cases();
 #ifdef APPSTORE_NATIVE_IN_PROCESS_TEST
     concurrent_sync_cases();
     optional_metadata_cases();
     cancellation_cases();
 #endif
-    plan_cases();package_cases();fs::remove_all(root);std::cout<<"native C++ parity tests passed: "<<checks<<" checks\n";
+    plan_cases();package_stream_cases();package_cases();fs::remove_all(root);std::cout<<"native C++ parity tests passed: "<<checks<<" checks\n";
 }

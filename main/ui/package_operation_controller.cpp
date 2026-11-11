@@ -108,6 +108,24 @@ void PackageOperationController::finish(const std::string &output, int result_co
         return;
     }
     if (!ok) {
+        std::string busy_app_id;
+        std::string busy_action;
+        std::string busy_package;
+        bool transaction_busy = false;
+        {
+            // Any PENDING_BUSY line means another package transaction still
+            // holds the lock; the payload fields may be empty.
+            std::istringstream busy_lines(output);
+            while (std::getline(busy_lines, line)) {
+                const auto fields = split_tab(line);
+                if (fields.empty() || fields[0] != "PENDING_BUSY") continue;
+                transaction_busy = true;
+                if (fields.size() > 1) busy_app_id = fields[1];
+                if (fields.size() > 2) busy_action = fields[2];
+                if (fields.size() > 3) busy_package = fields[3];
+                break;
+            }
+        }
         std::string pending_app_id;
         std::string pending_action;
         std::string pending_package;
@@ -134,6 +152,10 @@ void PackageOperationController::finish(const std::string &output, int result_co
         session_.error.message = one_line(title, 36);
         session_.error.detail = backend_error_message(output);
         if (session_.error.detail.empty()) session_.error.detail = "Package operation failed.";
+        // A package-manager timeout is not the same as a failed install: the
+        // package state may be intact and the operation can be retried.
+        if (output.find("package manager timed out") != std::string::npos)
+            session_.error.title = upper_ascii(job_action_label(action)) + " TIMED OUT";
         session_.error.repairable = pending_conflict || repair_required || was_repairing ||
             output.find("package pending path is not the Store transaction file") != std::string::npos;
         if (pending_conflict && !repair_required) {
@@ -153,6 +175,19 @@ void PackageOperationController::finish(const std::string &output, int result_co
             session_.error.repair_app_id = pending_conflict ? pending_app_id : job_.app_id;
             session_.error.repair_title = pending_conflict ?
                 (pending_package.empty() ? pending_app_id : pending_package) : title;
+        }
+        if (transaction_busy) {
+            // The backend rejected the request because another package
+            // transaction is still running: this is a wait, not a failure of
+            // the app the user just selected.
+            const std::string busy_label_action = busy_action.empty() ? action : busy_action;
+            const std::string busy_target = busy_package.empty() ? busy_app_id : busy_package;
+            session_.error.title =
+                upper_ascii(job_action_label(busy_label_action)) + " IN PROGRESS";
+            session_.error.message = one_line(busy_target.empty() ? title : busy_target, 36);
+            session_.error.detail =
+                "Another package operation is still running. Wait for it to finish, then retry.";
+            session_.error.repairable = false;
         }
         session_.status.value().clear();
     } else if (output.find("PACKAGE_REPAIRED\t") != std::string::npos) {

@@ -167,5 +167,25 @@ int main()
     assert(session.confirmation.lines()[0] == "FILE OWNERSHIP CONFLICT");
     assert(renders >= 2);
 
+    service.state().begin("install", "demo", "Demo", 650);
+    controller.finish(
+        "PENDING_BUSY\tflint\tinstall\tflint\n"
+        "ERROR\tpackage transaction is still busy; flint install is still running\n",
+        1);
+    assert(session.screen == Screen::ErrorDialog);
+    assert(session.error.title == "INSTALL IN PROGRESS");
+    assert(session.error.message.find("flint") != std::string::npos);
+    assert(session.error.detail.find("Wait") != std::string::npos);
+    assert(!session.error.repairable);
+    assert(session.status.value().empty());
+
+    service.state().begin("install", "demo", "Demo", 700);
+    controller.finish(
+        "ERROR\tpackage manager timed out after 3600 seconds; it was stopped before completion\t1\n",
+        1);
+    assert(session.screen == Screen::ErrorDialog);
+    assert(session.error.title == "INSTALL TIMED OUT");
+    assert(!session.error.repairable);
+
     std::cout << "package operation controller tests passed\n";
 }

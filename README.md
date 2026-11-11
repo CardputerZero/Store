@@ -19,7 +19,23 @@ Useful backend environment variables:
 ```bash
 M5APPSTORE_STATE_DIR=/root/.local/share/cardputerzero-appstore
 M5APPSTORE_APP_ROOT=/usr/share/APPLaunch
+M5APPSTORE_PACKAGE_TIMEOUT=3600   # seconds, 1..7200; slow dependency downloads
 ```
+
+AppStore always runs `dpkg`/`apt` with the C locale (`LC_ALL=C`), even when the
+system locale is translated (for example `zh_CN.UTF-8`), because package
+diagnostics are parsed by the backend and its pending-transaction recovery.
+Package management runs from the privileged helper and reports `PROGRESS`
+records for apt dependency downloads (`dlstatus:`), dpkg state changes
+(`pmstatus:`, `Unpacking`, `Setting up`) and a periodic heartbeat while it is
+quiet, so the UI keeps waiting instead of reporting a failure.
+
+While one package transaction still holds the lock, a second install reports
+`PENDING_BUSY` with the running app/action/package. The UI then explains that
+another operation is in progress instead of showing `INSTALLING FAILED`; the
+request can be retried after the running helper exits. The helper execution
+timeout in the UI stays above the backend package timeout so a slow download is
+never killed by the UI's sudo layer.
 
 Default registry:
 
@@ -95,9 +111,19 @@ Settings offers three server modes for the same catalog: **Auto**, **Default**
 (GitHub), and **CN** (Alibaba Cloud OSS). `Z/C` (left/right) changes the mode;
 `4` goes back and `8` syncs after the pending selection is applied.
 The screen retains its dark styling, segmented selector, and read-only active
-server information. Auto tries GitHub first and falls back to OSS if it cannot
-retrieve a usable catalog; explicit Default and CN choices stay pinned to that
-server. Cached data does not count as a successful connectivity check. Only one
+server information. Auto follows the local timezone name: the Chinese IANA
+zones (`Asia/Shanghai`, `Asia/Chongqing`, `Asia/Harbin`, `Asia/Urumqi`,
+`Asia/Kashgar`, `Asia/Hong_Kong`, `Asia/Macau`, `PRC`) prefer the CN mirror;
+every other timezone, including other UTC+08:00 zones such as
+`Asia/Singapore` and the OOBE's fixed `Etc/GMT-8`, prefers GitHub. An
+unusable catalog falls back to the other built-in mirror. The name is read
+from `TZ`, `/etc/timezone`, or `/etc/localtime` at each sync (no network
+lookup and no external IP disclosure). LaunchWizard currently stores the
+UTC+08:00 choice as `Etc/GMT-8`; select CN explicitly, or set the system
+timezone to `Asia/Shanghai`, if the CN mirror is required with Auto.
+Explicit Default and CN choices stay pinned regardless of the timezone.
+Cached data
+does not count as a successful connectivity check. Only one
 server supplies the catalog at a time; custom registries and their editor are
 not supported. Existing saved custom sources are normalized to the selected
 built-in server, and the mode and effective server are persisted across restarts.

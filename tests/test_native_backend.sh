@@ -40,7 +40,12 @@ EOF
 cat > "$test_root/bin/dpkg-query" <<'EOF'
 #!/bin/sh
 set -eu
+if [ -n "${FAKE_DPKG_LOCALE_LOG:-}" ]; then printf '%s\n' "${LC_ALL:-}" >> "$FAKE_DPKG_LOCALE_LOG"; fi
 if [ "$1" = -L ]; then printf '/usr/bin/demo-package\n'; exit 0; fi
+if [ "${FAKE_DPKG_LOCALE:-}" = zh ]; then
+    printf 'dpkg-query: 没有找到与 demo-package 相匹配的软件包\n' >&2
+    exit 1
+fi
 if [ -f "$FAKE_PACKAGE_STATE" ]; then printf 'ii \t1.2.0\n'; exit 0; fi
 printf 'dpkg-query: no packages found matching demo-package\n' >&2
 exit 1
@@ -58,6 +63,7 @@ EOF
 chmod +x "$test_root/bin/curl" "$test_root/bin/dpkg-query" "$test_root/bin/dpkg-deb"
 
 export PATH="$test_root/bin:$PATH"
+export TZ=Asia/Shanghai
 export FAKE_DEB="$deb" FAKE_REGISTRY="$test_root/registry.json"
 export FAKE_PACKAGE_STATE="$test_root/package-installed"
 export M5APPSTORE_STATE_DIR="$test_root/state"
@@ -71,6 +77,15 @@ summary_output=$($binary --summary)
 printf '%s\n' "$summary_output" | grep -q '^APP[[:space:]]app-id[[:space:]]Demo'
 
 FAKE_CURL_FAIL=1 $binary --sync | grep -q '^SYNC[[:space:]]0[[:space:]]1[[:space:]]0[[:space:]]1'
+
+# Regression: a Chinese dpkg-query diagnostic (rc=1) must still count as
+# "not installed", and the child process must be forced to LC_ALL=C.
+export FAKE_DPKG_LOCALE_LOG="$test_root/dpkg-locale.log"
+: > "$FAKE_DPKG_LOCALE_LOG"
+FAKE_DPKG_LOCALE=zh $binary --prepare-package install app-id |
+    grep -q '^PACKAGE_JOB[[:space:]]install'
+test "$(head -n 1 "$FAKE_DPKG_LOCALE_LOG")" = C
+rm -f "$test_root/state/pending-package.json"
 
 job=$($binary --prepare-package install app-id)
 printf '%s\n' "$job" | grep -q '^PACKAGE_JOB[[:space:]]install'
