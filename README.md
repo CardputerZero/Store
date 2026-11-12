@@ -63,11 +63,13 @@ wait for its results. Cancelling a sync aborts in-flight transfers during both
 connect and receive (the waiter calls `curl_multi_wakeup`, and the worker removes
 the handles) within a few tens of milliseconds, deleting the partial `.tmp`
 files. This replaced the previous asynchronous client, whose event loop could abort
-when torn down from a worker thread. When libcurl is not available at build time, or
-when `M5APPSTORE_HTTP_TRANSPORT=curl` is set, AppStore falls back to the curl
-subprocess transport. Debian package downloads also use curl so interrupted
-downloads can be resumed safely. Proxy environment variables are honoured by
-libcurl itself, including HTTPS CONNECT tunneling.
+when torn down from a worker thread. Host builds require the libcurl development
+headers (`libcurl4-openssl-dev`); the cross SDK sysroot supplies them. If the
+library is missing, the build intentionally fails instead of silently changing
+transports. `M5APPSTORE_HTTP_TRANSPORT=curl` selects the curl subprocess transport
+at runtime. Debian package downloads also use curl so interrupted downloads can
+be resumed safely. Proxy environment variables are honoured by libcurl itself,
+including HTTPS CONNECT tunneling.
 
 ## Backend Commands
 
