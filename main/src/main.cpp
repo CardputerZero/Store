@@ -7,7 +7,6 @@
 #include "main.h"
 #include "appstore_process_entry.hpp"
 #include "global_config.h"
-#include "hv/hlog.h"
 
 #ifdef CONFIG_V9_5_LV_USE_SDL
 #include "hal/hal_paths.h"
@@ -30,7 +29,6 @@ std::string executable_dir(const char *path)
 
 int main(int argc, char **argv)
 {
-    hlog_set_handler(stderr_logger);
     int backend_exit_code = 0;
     if (appstore::run_backend_process_mode(argc, argv, &backend_exit_code))
         return backend_exit_code;

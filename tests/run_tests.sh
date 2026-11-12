@@ -260,6 +260,50 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror "$(dirname "$0")/test_job_shutdown_
 "$build_dir/test_job_shutdown_flow"
 ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror "$(dirname "$0")/test_low_battery_flow.cpp" -o "$build_dir/test_low_battery_flow"
 "$build_dir/test_low_battery_flow"
+
+# libcurl multi worker: dedicated worker thread, bounded concurrency and
+# cancellation that takes effect while a transfer is waiting for its response.
+repo_root=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
+sdk_version=""
+sdk_version_file="$ext_components_path/cp0_lvgl/sdk_version.txt"
+if [ -f "$sdk_version_file" ]; then
+    sdk_version=$(tr -d '[:space:]' < "$sdk_version_file")
+fi
+curl_header_dir=""
+if [ -n "$sdk_version" ] && [ -f "$repo_root/SDK/github_source/static_lib_$sdk_version/usr/include/aarch64-linux-gnu/curl/curl.h" ]; then
+    curl_header_dir="$repo_root/SDK/github_source/static_lib_$sdk_version/usr/include/aarch64-linux-gnu/curl"
+elif [ -f /usr/include/curl/curl.h ]; then
+    curl_header_dir=/usr/include/curl
+fi
+curl_link_flags=""
+if [ -n "$curl_header_dir" ]; then
+    for lib_dir in "/usr/lib/$(uname -m)-linux-gnu" /usr/lib64 /usr/lib /usr/local/lib; do
+        if [ -f "$lib_dir/libcurl.so" ]; then
+            curl_link_flags="-L$lib_dir -lcurl"
+            break
+        fi
+        if [ -f "$lib_dir/libcurl.so.4" ]; then
+            curl_link_flags="-L$lib_dir -l:libcurl.so.4"
+            break
+        fi
+    done
+fi
+if [ -n "$curl_header_dir" ] && [ -n "$curl_link_flags" ]; then
+    curl_include_root="$build_dir/curl-include"
+    mkdir -p "$curl_include_root"
+    rm -f "$curl_include_root/curl"
+    ln -s "$curl_header_dir" "$curl_include_root/curl"
+    ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror -pthread -DAPPSTORE_USE_LIBCURL=1 \
+        -I"$curl_include_root" \
+        "$(dirname "$0")/test_curl_multi.cpp" \
+        "$(dirname "$0")/../main/backend/appstore_curl_multi.cpp" \
+        $curl_link_flags \
+        -o "$build_dir/test_curl_multi"
+    "$build_dir/test_curl_multi"
+else
+    echo "curl multi worker tests skipped: libcurl headers/library not found"
+fi
+
 ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
     -isystem "$(dirname "$0")/../../../SDK/components/utilities/include" \
     "$(dirname "$0")/test_native_backend.cpp" -o "$build_dir/test_native_backend"

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "appstore_curl_multi.hpp"
 #include "appstore_native.hpp"
 #include "appstore_package_stream.hpp"
 #include "appstore_process_entry.hpp"
@@ -11,15 +12,11 @@
 // Native registry, networking, cache, and package-management backend.
 
 #include "cp0_lvgl_app.h"
-#include <hv/HttpClient.h>
-#include <hv/hssl.h>
-#include <hv/hasync.h>
 #include "json.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cctype>
 #include <ctime>
 #include <cstdio>
@@ -580,133 +577,48 @@ void curl_download(const std::string &url, const fs::path &destination, bool res
     }
 }
 
-struct HttpDownload {
-    std::string url;
-    fs::path destination;
-};
-
-struct HttpBatchState {
-    std::mutex mutex;
-    std::condition_variable changed;
-    size_t pending = 0;
-    std::vector<std::string> bodies;
-    std::vector<std::string> errors;
-};
-
-void configure_proxy(hv::HttpClient &client)
+// Fallback transport: the curl subprocess. Used when the libcurl multi worker is
+// not available and whenever M5APPSTORE_HTTP_TRANSPORT=curl (integration tests
+// and manual fallback). Child processes keep cancellation prompt because
+// run_cancellable kills the process group when the cancel flag is raised.
+std::vector<bool> curl_subprocess_download_batch(const std::vector<CurlDownload> &downloads,
+                                                 const std::atomic<bool> *cancel, int timeout_seconds)
 {
-    auto apply = [&](const char *name, bool https) {
-        const char *raw = std::getenv(name);
-        if (!raw || !raw[0]) return;
-        std::string value(raw);
-        size_t scheme = value.find("://");
-        if (scheme != std::string::npos) value.erase(0, scheme + 3);
-        size_t slash = value.find('/');
-        if (slash != std::string::npos) value.resize(slash);
-        size_t colon = value.rfind(':');
-        if (colon == std::string::npos) return;
-        const std::string host = value.substr(0, colon);
-        const int port = std::atoi(value.substr(colon + 1).c_str());
-        if (!host.empty() && port > 0) {
-            if (https) client.setHttpsProxy(host.c_str(), port);
-            else client.setHttpProxy(host.c_str(), port);
+    std::vector<char> completed(downloads.size(), 0);
+    std::atomic<size_t> cursor{0};
+    auto worker = [&]() {
+        for (;;) {
+            const size_t index = cursor.fetch_add(1);
+            if (index >= downloads.size()) return;
+            if (cancel && cancel->load()) return;
+            try {
+                curl_download(downloads[index].url, fs::path(downloads[index].destination), false, cancel,
+                              timeout_seconds);
+                completed[index] = 1;
+            } catch (...) {
+            }
         }
     };
-    apply("HTTP_PROXY", false);
-    apply("HTTPS_PROXY", true);
-    if (!std::getenv("HTTP_PROXY")) apply("http_proxy", false);
-    if (!std::getenv("HTTPS_PROXY")) apply("https_proxy", true);
+    const size_t thread_count = std::min<size_t>(6, downloads.size());
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (size_t i = 0; i < thread_count; ++i) threads.emplace_back(worker);
+    for (auto &thread : threads) thread.join();
+    std::vector<bool> succeeded(downloads.size(), false);
+    for (size_t i = 0; i < downloads.size(); ++i) succeeded[i] = completed[i] != 0;
+    return succeeded;
 }
 
-std::vector<bool> hv_download_batch(const std::vector<HttpDownload> &downloads,
-                                    const std::atomic<bool> *cancel = nullptr, int timeout_seconds = 30)
+std::vector<bool> http_download_batch(const std::vector<CurlDownload> &downloads,
+                                      const std::atomic<bool> *cancel = nullptr, int timeout_seconds = 30)
 {
     std::vector<bool> succeeded(downloads.size(), false);
     if (downloads.empty()) return succeeded;
-    const bool proxy_configured = (std::getenv("HTTP_PROXY") && std::getenv("HTTP_PROXY")[0]) ||
-        (std::getenv("HTTPS_PROXY") && std::getenv("HTTPS_PROXY")[0]) ||
-        (std::getenv("http_proxy") && std::getenv("http_proxy")[0]) ||
-        (std::getenv("https_proxy") && std::getenv("https_proxy")[0]);
-    const bool https_without_ssl = !HV_WITH_SSL && std::any_of(
-        downloads.begin(), downloads.end(), [](const HttpDownload &download) {
-            return download.url.rfind("https://", 0) == 0;
-        });
-    if (proxy_configured || https_without_ssl || env_or("M5APPSTORE_HTTP_TRANSPORT", "") == "curl") {
-        hv::async::startup(2, 6);
-        std::vector<std::future<bool>> futures;
-        futures.reserve(downloads.size());
-        for (const auto &download : downloads) {
-            futures.push_back(hv::async([download, cancel, timeout_seconds]() {
-                try {
-                    curl_download(download.url, download.destination, false, cancel, timeout_seconds);
-                    return true;
-                } catch (...) {
-                    return false;
-                }
-            }));
-        }
-        for (size_t i = 0; i < futures.size(); ++i) {
-            succeeded[i] = futures[i].get();
-        }
-        return succeeded;
+    if (env_or("M5APPSTORE_HTTP_TRANSPORT", "") != "curl") {
+        std::vector<bool> results = curl_multi_download_batch(downloads, cancel, timeout_seconds);
+        if (results.size() == downloads.size()) return results;
     }
-    auto state = std::make_shared<HttpBatchState>();
-    state->pending = downloads.size();
-    state->bodies.resize(downloads.size());
-    state->errors.resize(downloads.size());
-    hv::HttpClient client;
-    client.setTimeout(timeout_seconds);
-    configure_proxy(client);
-
-    for (size_t i = 0; i < downloads.size(); ++i) {
-        auto request = std::make_shared<HttpRequest>();
-        request->method = HTTP_GET;
-        request->url = downloads[i].url;
-        request->timeout = timeout_seconds;
-        request->connect_timeout = 10;
-        request->headers["User-Agent"] = "CardputerZero-AppStore/0.1";
-        request->headers["Cache-Control"] = "no-cache";
-        const int submit = client.sendAsync(request, [state, i](const HttpResponsePtr &response) {
-            std::lock_guard<std::mutex> lock(state->mutex);
-            if (response && response->status_code >= 200 && response->status_code < 300)
-                state->bodies[i] = response->body;
-            else
-                state->errors[i] = response ? "HTTP " + std::to_string(response->status_code) : "request failed";
-            if (state->pending > 0) --state->pending;
-            state->changed.notify_all();
-        });
-        if (submit != 0) {
-            std::lock_guard<std::mutex> lock(state->mutex);
-            state->errors[i] = http_client_strerror(submit);
-            --state->pending;
-        }
-    }
-
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
-    std::unique_lock<std::mutex> lock(state->mutex);
-    while (state->pending > 0) {
-        if ((cancel && cancel->load()) || std::chrono::steady_clock::now() >= deadline) return succeeded;
-        state->changed.wait_for(lock, std::chrono::milliseconds(50));
-    }
-    lock.unlock();
-    for (size_t i = 0; i < downloads.size(); ++i) {
-        if (!state->errors[i].empty()) continue;
-        try {
-            fs::create_directories(downloads[i].destination.parent_path());
-            fs::path temporary = downloads[i].destination;
-            temporary += ".tmp";
-            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-            output.write(state->bodies[i].data(), static_cast<std::streamsize>(state->bodies[i].size()));
-            output.close();
-            if (!output || state->bodies[i].empty()) throw std::runtime_error("empty HTTP response");
-            fs::rename(temporary, downloads[i].destination);
-            succeeded[i] = true;
-        } catch (...) {
-            std::error_code ec;
-            fs::remove(downloads[i].destination.string() + ".tmp", ec);
-        }
-    }
-    return succeeded;
+    return curl_subprocess_download_batch(downloads, cancel, timeout_seconds);
 }
 
 json request_json(const std::string &url)
@@ -717,7 +629,7 @@ json request_json(const std::string &url)
     try {
         if (g_sync_cancel) throw std::runtime_error("sync cancelled");
         const int timeout = bounded_seconds("M5APPSTORE_CATALOG_TIMEOUT", 15, 30);
-        auto result = hv_download_batch({{url, temp}}, &g_sync_cancel, timeout);
+        auto result = http_download_batch({{url, temp.string()}}, &g_sync_cancel, timeout);
         if (g_sync_cancel) throw std::runtime_error("sync cancelled");
         if (result.empty() || !result[0]) throw std::runtime_error("download failed: " + url);
         json value = read_json(temp, nullptr);
@@ -883,7 +795,7 @@ std::string media_cache(const std::string &registry_url, const std::string &ref,
 struct ArtworkTask {
     std::string app;
     bool screenshot = false;
-    HttpDownload download;
+    CurlDownload download;
 };
 
 ArtworkTask artwork_task(const std::string &registry_url, const std::string &ref,
@@ -894,7 +806,7 @@ ArtworkTask artwork_task(const std::string &registry_url, const std::string &ref
     if (extension.empty() || extension.size() > 8) extension = ".png";
     fs::path destination = cache_dir() / (screenshot ? "screenshots" : "icons") /
         (sha1_text(media_url).substr(0, 16) + extension);
-    return {app, screenshot, {media_url, destination}};
+    return {app, screenshot, {media_url, destination.string()}};
 }
 
 bool usable_catalog(const json &catalog)
@@ -963,7 +875,7 @@ json sync_registry(const json &source, const json &index)
             if (!icon.empty()) {
                 ArtworkTask task = artwork_task(url, icon, app_key(app), false);
                 if (fs::exists(task.download.destination) && fs::file_size(task.download.destination) > 0)
-                    record["icons"][task.app] = task.download.destination.string();
+                    record["icons"][task.app] = task.download.destination;
                 else
                     pending_artwork.push_back(std::move(task));
             }
@@ -974,14 +886,14 @@ json sync_registry(const json &source, const json &index)
             const size_t end = std::min(pending_artwork.size(), begin + kArtworkConcurrency);
             const int progress = 15 + static_cast<int>(75 * end / std::max<size_t>(1, pending_artwork.size()));
             update_status(true, url, "Caching app artwork", progress, "assets");
-            std::vector<HttpDownload> downloads;
+            std::vector<CurlDownload> downloads;
             for (size_t i = begin; i < end; ++i) downloads.push_back(pending_artwork[i].download);
-            const auto results = hv_download_batch(downloads, &g_sync_cancel);
+            const auto results = http_download_batch(downloads, &g_sync_cancel);
             if (g_sync_cancel) throw std::runtime_error("sync cancelled");
             for (size_t offset = 0; offset < results.size(); ++offset) {
                 if (!results[offset]) continue;
                 const ArtworkTask &task = pending_artwork[begin + offset];
-                record["icons"][task.app] = task.download.destination.string();
+                record["icons"][task.app] = task.download.destination;
             }
         }
         write_json(registry_cache(url), record);
@@ -2392,8 +2304,8 @@ std::string fetch_screenshots(const std::string &wanted, int &rc)
                      fs::file_size(task.download.destination) > 0;
             }
             if (!ok) continue;
-            local.push_back(task.download.destination.string());
-            emit(out, "SCREENSHOT", wanted, task.download.destination.string());
+            local.push_back(task.download.destination);
+            emit(out, "SCREENSHOT", wanted, task.download.destination);
             ++downloaded;
         }
         record["screenshots"][wanted] = std::move(local);

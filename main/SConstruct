@@ -5,6 +5,7 @@ import os
 import shutil
 import shlex
 import subprocess
+import platform
 from pathlib import Path
 Import("env")
 with open(env["PROJECT_TOOL_S"]) as f:
@@ -25,7 +26,7 @@ if ext_components_path:
     INCLUDE += [os.path.join(ext_components_path, "cp0_lvgl", "include")]
 INCLUDE += [ADir("include")]
 PRIVATE_INCLUDE = []
-REQUIREMENTS = ["cp0_lvgl", "eventpp", "lvgl_component", "pthread", "ssl", "crypto", "utilities", "hv"]
+REQUIREMENTS = ["cp0_lvgl", "eventpp", "lvgl_component", "pthread", "ssl", "crypto", "utilities"]
 STATIC_LIB = []
 DYNAMIC_LIB = []
 DEFINITIONS = []
@@ -117,6 +118,88 @@ if static_sysroot:
             f"{multiarch_lib}/libstdc++.so.6",
         ]
         LINK_SEARCH_PATH += [multiarch_lib]
+
+# ---------------------------------------------------------------------------
+# libcurl detection for the dedicated curl_multi worker (appstore_curl_multi).
+# The SDK sysroot ships libcurl 8.14.1 headers and libraries; the host may only
+# provide the runtime library (no -dev package), so link against libcurl.so.4
+# when no libcurl.so symlink exists. The sysroot curl headers are exposed through
+# a build-local include root that contains only `curl/`, so the aarch64 sysroot
+# never shadows host headers such as openssl or bits/.
+# ---------------------------------------------------------------------------
+def find_curl_headers():
+    candidates = []
+    for sysroot in (
+        os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", ""),
+        os.environ.get("CARDPUTERZERO_STATIC_LIB_SYSROOT", ""),
+    ):
+        if sysroot:
+            candidates.append(
+                os.path.join(sysroot.strip('"'), "usr", "include", "aarch64-linux-gnu", "curl"))
+    sdk_path = os.environ.get("SDK_PATH", "")
+    ext_path = os.environ.get("EXT_COMPONENTS_PATH", "")
+    if sdk_path and ext_path:
+        version = ""
+        try:
+            with open(os.path.join(ext_path, "cp0_lvgl", "sdk_version.txt"), encoding="utf-8") as handle:
+                version = handle.read().strip()
+        except OSError:
+            pass
+        if version:
+            candidates.append(
+                os.path.join(sdk_path, "github_source", "static_lib_" + version,
+                             "usr", "include", "aarch64-linux-gnu", "curl"))
+    candidates.append("/usr/include/curl")
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "curl.h")):
+            return candidate
+    return None
+
+
+def find_curl_library():
+    candidates = []
+    for sysroot in (
+        os.environ.get("CONFIG_TOOLCHAIN_SYSROOT", ""),
+        os.environ.get("CARDPUTERZERO_STATIC_LIB_SYSROOT", ""),
+    ):
+        if sysroot:
+            candidates.append(os.path.join(sysroot.strip('"'), "usr", "lib", "aarch64-linux-gnu"))
+    for arch in dict.fromkeys([platform.machine(), "x86_64", "aarch64"]):
+        candidates.append("/usr/lib/{}-linux-gnu".format(arch))
+    candidates += ["/usr/lib64", "/usr/lib", "/usr/local/lib"]
+    for candidate in dict.fromkeys(candidates):
+        if not os.path.isdir(candidate):
+            continue
+        if os.path.exists(os.path.join(candidate, "libcurl.so")):
+            return candidate, "curl"
+        if os.path.exists(os.path.join(candidate, "libcurl.so.4")):
+            return candidate, ":libcurl.so.4"
+    return None
+
+
+curl_headers = find_curl_headers()
+curl_library = find_curl_library()
+if curl_headers and curl_library:
+    curl_include_root = os.path.abspath(os.path.join("build", "deps", "libcurl", "include"))
+    curl_include_entry = os.path.join(curl_include_root, "curl")
+    try:
+        os.makedirs(curl_include_root, exist_ok=True)
+        if os.path.islink(curl_include_entry) or os.path.isfile(curl_include_entry):
+            os.unlink(curl_include_entry)
+        elif os.path.isdir(curl_include_entry):
+            shutil.rmtree(curl_include_entry)
+        os.symlink(os.path.abspath(curl_headers), curl_include_entry)
+        INCLUDE += [curl_include_root]
+        REQUIREMENTS += [curl_library[1]]
+        LINK_SEARCH_PATH += [curl_library[0]]
+        DEFINITIONS += ["-DAPPSTORE_USE_LIBCURL=1"]
+        curl_library_file = "libcurl.so" if curl_library[1] == "curl" else "libcurl.so.4"
+        print("AppStore: libcurl multi transport enabled (headers: {}, library: {}/{}).".format(
+            curl_headers, curl_library[0], curl_library_file))
+    except OSError as error:
+        print("AppStore: libcurl multi transport disabled ({})".format(error))
+else:
+    print("AppStore: libcurl not found, using the curl subprocess transport")
 
 lvgl_component = list(filter(lambda x: x["target"] == "lvgl_component", env["COMPONENTS"]))[0]
 if FREETYPE_INCLUDE:

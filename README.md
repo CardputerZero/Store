@@ -55,12 +55,19 @@ or intermediate CDN cache does not hide newly published entries. If a registry
 cannot be loaded, the UI shows the load failure; if a previous catalog exists,
 AppStore keeps showing the cached app list and marks the registry as cached.
 
-Registry metadata and artwork use libhv asynchronous networking. Artwork is
-downloaded in bounded batches of six requests so synchronization remains
-responsive without exhausting device sockets. When an HTTP proxy is configured,
-AppStore uses libhv's asynchronous thread pool with curl because libhv's native
-async client does not implement HTTPS CONNECT proxy tunneling. Debian package
-downloads continue to use curl so interrupted downloads can be resumed safely.
+Registry metadata and artwork are downloaded by a dedicated libcurl `curl_multi`
+worker thread. Artwork is fetched in bounded batches of six requests so
+synchronization remains responsive without exhausting device sockets. The worker
+thread owns the only `CURLM` handle; callers from any thread submit a batch and
+wait for its results. Cancelling a sync aborts in-flight transfers during both
+connect and receive (the waiter calls `curl_multi_wakeup`, and the worker removes
+the handles) within a few tens of milliseconds, deleting the partial `.tmp`
+files. This replaced the previous asynchronous client, whose event loop could abort
+when torn down from a worker thread. When libcurl is not available at build time, or
+when `M5APPSTORE_HTTP_TRANSPORT=curl` is set, AppStore falls back to the curl
+subprocess transport. Debian package downloads also use curl so interrupted
+downloads can be resumed safely. Proxy environment variables are honoured by
+libcurl itself, including HTTPS CONNECT tunneling.
 
 ## Backend Commands
 
