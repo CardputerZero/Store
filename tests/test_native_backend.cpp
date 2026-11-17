@@ -127,7 +127,10 @@ esac
 set -eu
 if [ -n "${FAKE_DPKG_LOCALE_LOG:-}" ]; then printf '%s\n' "${LC_ALL:-}" >> "$FAKE_DPKG_LOCALE_LOG"; fi
 if [ "$1" = -L ]; then [ "${FAKE_FILES_FAIL:-0}" = 0 ] || exit 2; printf '/usr/bin/demo-package\n/usr/share/APPLaunch/applications/demo.desktop\n'; exit; fi
-case "${FAKE_DPKG_MODE:-absent}" in installed) printf '%s\t%s\n' "${FAKE_STATUS:-ii }" "${FAKE_VERSION:-1.2.0}";; un) printf 'un \t0.1.0\n';; localized-absent) printf 'dpkg-query: 没有找到与 demo-package 相匹配的软件包\n' >&2; exit 1;; error) echo 'database error' >&2;exit 2;; *) echo 'no packages found matching' >&2;exit 1;; esac
+if [ -n "${FAKE_DPKG_CALL_LOG:-}" ]; then printf '%s\n' "$*" >> "$FAKE_DPKG_CALL_LOG"; fi
+# The catalog lists every package in one call: -f starts with ${Package} and no name is given.
+p=; case "$2" in *'${Package}'*) p=$(printf 'demo-package\t');; esac
+case "${FAKE_DPKG_MODE:-absent}" in installed) printf '%s%s\t%s\n' "$p" "${FAKE_STATUS:-ii }" "${FAKE_VERSION:-1.2.0}";; un) printf '%sun \t0.1.0\n' "$p";; localized-absent) [ -z "$p" ] || exit 0; printf 'dpkg-query: 没有找到与 demo-package 相匹配的软件包\n' >&2; exit 1;; error) echo 'database error' >&2;exit 2;; *) [ -z "$p" ] || exit 0; echo 'no packages found matching' >&2;exit 1;; esac
 )",0755);
     text(root/"bin/dpkg-deb", R"(#!/bin/sh
 case "$3" in Package) echo "${FAKE_DEB_PACKAGE:-demo-package}";; Version) echo "${FAKE_DEB_VERSION:-1.2.0}";; Pre-Depends|Depends) echo -n "${FAKE_DEPENDS:-}";; *) exit 1;; esac
@@ -144,7 +147,12 @@ static void registry_cases() {
     CHECK(call({"--set-region","moon"}).rc!=0); CHECK(call({"--set-region","CN"}).rc==0);
     CHECK(has(call({"--registry-config"}),"CONFIG\tCN\tCN\t1")); CHECK(call({"--set-region","default"}).rc==0);
     Result s=call({"--sync"}); CHECK(s.rc==0&&has(s,"SYNC\t1\t0\t0\t2"));
+    const fs::path dpkg_calls=root/"state/dpkg-calls.log"; fs::remove(dpkg_calls);
+    setenv("FAKE_DPKG_CALL_LOG",dpkg_calls.c_str(),1);
     Result sum=call({"--summary"}); CHECK(has(sum,"META\t1\t2 apps/1 registries"));
+    unsetenv("FAKE_DPKG_CALL_LOG");
+    { std::ifstream calls(dpkg_calls); std::string line; int count=0; while (std::getline(calls,line)) if (line.rfind("-",0)==0) ++count; // -f ends in a newline
+      CHECK(count==1); } // One dpkg-query for the whole catalog, not one per app.
     CHECK(has(sum,"CAT\tAll\nCAT\tInstalled\nCAT\tUtilities\nCAT\tTools\n"));
     CHECK(!has(sum,"CAT\tRecommended\n"));
     CHECK(has(sum,"APP\tapp-id\tDemo Local\t1.2.0\tUtilities\t0\t1\t"));

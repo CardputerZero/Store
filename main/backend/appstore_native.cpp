@@ -1053,19 +1053,8 @@ struct PackageState {
     bool known = false;
 };
 
-PackageState package_state(const std::string &package)
+PackageState parse_package_state(std::string status, std::string version)
 {
-    if (package.empty()) return {false, "", true};
-    auto [rc, output] = capture({"dpkg-query", "-W", "-f=${db:Status-Abbrev}\t${Version}", package}, 8192);
-    if (rc != 0) {
-        // dpkg-query exits 1 when the package is not known to dpkg.  The
-        // accompanying message is translated (e.g. under zh_CN.UTF-8), so the
-        // exit code is the only stable signal.
-        return {false, "", rc == 1};
-    }
-    size_t tab = output.find('\t');
-    std::string status = tab == std::string::npos ? output : output.substr(0, tab);
-    std::string version = tab == std::string::npos ? "" : output.substr(tab + 1);
     while (!status.empty() && std::isspace(static_cast<unsigned char>(status.back()))) status.pop_back();
     while (!version.empty() && std::isspace(static_cast<unsigned char>(version.back()))) version.pop_back();
     // A third status character denotes a dpkg error such as Reinst-required.
@@ -1075,6 +1064,60 @@ PackageState package_state(const std::string &package)
     const bool absent = (status.size() == 2 || status.size() == 3) &&
         std::string("uihpr").find(status[0]) != std::string::npos && (status[1] == 'n' || status[1] == 'c');
     return {installed, version, installed || absent};
+}
+
+// Each dpkg-query run parses the whole dpkg status file (~0.2 s on the device),
+// so listing the catalog queries every package once instead of once per app.
+bool g_package_snapshot_active = false;
+std::map<std::string, PackageState> g_package_snapshot;
+
+struct PackageSnapshotScope {
+    PackageSnapshotScope()
+    {
+        auto [rc, output] = capture({"dpkg-query", "-W", "-f=${Package}\t${db:Status-Abbrev}\t${Version}\n"});
+        if (rc != 0) return; // Fall back to querying each package.
+        std::istringstream lines(output);
+        std::string line;
+        while (std::getline(lines, line)) {
+            const size_t first = line.find('\t');
+            const size_t second = first == std::string::npos ? first : line.find('\t', first + 1);
+            if (second == std::string::npos) continue;
+            const std::string name = line.substr(0, first);
+            PackageState state = parse_package_state(line.substr(first + 1, second - first - 1),
+                                                     line.substr(second + 1));
+            // With several architectures of one package, report the installed one.
+            auto [entry, inserted] = g_package_snapshot.emplace(name, state);
+            if (!inserted && state.installed) entry->second = state;
+        }
+        g_package_snapshot_active = true;
+    }
+    ~PackageSnapshotScope()
+    {
+        g_package_snapshot_active = false;
+        g_package_snapshot.clear();
+    }
+    PackageSnapshotScope(const PackageSnapshotScope &) = delete;
+    PackageSnapshotScope &operator=(const PackageSnapshotScope &) = delete;
+};
+
+PackageState package_state(const std::string &package)
+{
+    if (package.empty()) return {false, "", true};
+    if (g_package_snapshot_active) {
+        // dpkg-query -W lists every package dpkg knows; a missing one is absent.
+        const auto entry = g_package_snapshot.find(package);
+        return entry == g_package_snapshot.end() ? PackageState{false, "", true} : entry->second;
+    }
+    auto [rc, output] = capture({"dpkg-query", "-W", "-f=${db:Status-Abbrev}\t${Version}", package}, 8192);
+    if (rc != 0) {
+        // dpkg-query exits 1 when the package is not known to dpkg.  The
+        // accompanying message is translated (e.g. under zh_CN.UTF-8), so the
+        // exit code is the only stable signal.
+        return {false, "", rc == 1};
+    }
+    size_t tab = output.find('\t');
+    return parse_package_state(tab == std::string::npos ? output : output.substr(0, tab),
+                               tab == std::string::npos ? "" : output.substr(tab + 1));
 }
 
 PackageState effective_package_state(const std::string &package)
@@ -1140,6 +1183,7 @@ json find_app(const std::string &wanted)
 
 std::string summary_output()
 {
+    PackageSnapshotScope package_snapshot;
     std::ostringstream out;
     auto records = load_records(false);
     json apps = merge_apps(records);
