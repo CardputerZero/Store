@@ -1011,23 +1011,38 @@ void StoreSettingsPage::render(const PageRenderContext &context,
 
     // Region is a segmented control: the chosen segment is filled blue.
     constexpr int region_y = 48, region_height = 30;
+    // The group is drawn at (12, region_y) and 296 wide with a 1px border, so
+    // its inner area is (13, region_y + 1) at 294 x (region_height - 2).
+    constexpr int region_x = 13, segment_width = 98;
+    constexpr int region_inner_height = region_height - 2;
     settings_group(root, region_y, region_height, true);
     const char *const regions[] = {"Auto", "Default", "CN"};
     const char *const codes[] = {"auto", "default", "CN"};
-    constexpr int segment_width = 98;
     for (int i = 0; i < 3; ++i) {
         const bool selected = model.region_code == codes[i];
-        const int x = 13 + i * segment_width;
-        if (selected)
-            box(root, x, region_y + 1, segment_width - 2, region_height - 2, kSystemBlue,
-                kSystemBlue, 0, 11);
+        const int x = region_x + i * segment_width;
+        if (selected) {
+            // Fill the whole cell edge to edge. Only the group's outer ends keep
+            // the rounded cap (radius 11 matches the border's inner curve); the
+            // inner corners are squared by a patch so no dark ring shows between
+            // the fill and the border.
+            const bool first = i == 0, last = i == 2;
+            box(root, x, region_y + 1, segment_width, region_inner_height, kSystemBlue,
+                kSystemBlue, 0, first || last ? 11 : 0);
+            if (first)
+                box(root, x + segment_width - 11, region_y + 1, 11, region_inner_height,
+                    kSystemBlue, kSystemBlue, 0, 0);
+            else if (last)
+                box(root, x, region_y + 1, 11, region_inner_height, kSystemBlue,
+                    kSystemBlue, 0, 0);
+        }
         const lv_font_t *font = store_font(regions[i], 13);
         const int text_y = region_y + region_height / 2 - glyph_middle(font, 'A');
         if (selected)
-            center_strong_label(root, regions[i], x, text_y, segment_width - 2,
+            center_strong_label(root, regions[i], x, text_y, segment_width,
                                 font->line_height, font, 0xFFFFFF);
         else
-            center_label(root, regions[i], x, text_y, segment_width - 2, font->line_height,
+            center_label(root, regions[i], x, text_y, segment_width, font->line_height,
                          font, kSecondaryText);
     }
 
