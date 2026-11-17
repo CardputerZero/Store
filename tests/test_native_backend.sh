@@ -46,6 +46,10 @@ if [ "${FAKE_DPKG_LOCALE:-}" = zh ]; then
     printf 'dpkg-query: 没有找到与 demo-package 相匹配的软件包\n' >&2
     exit 1
 fi
+# The catalog lists every package in one call: -f starts with ${Package} and no name is given.
+case "$2" in
+    *'${Package}'*) if [ -f "$FAKE_PACKAGE_STATE" ]; then printf 'demo-package\tii \t1.2.0\n'; fi; exit 0 ;;
+esac
 if [ -f "$FAKE_PACKAGE_STATE" ]; then printf 'ii \t1.2.0\n'; exit 0; fi
 printf 'dpkg-query: no packages found matching demo-package\n' >&2
 exit 1
