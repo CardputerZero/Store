@@ -113,7 +113,7 @@ void CatalogController::cycle_sort_rule()
     sort_apps(session_.catalog.apps(), session_.catalog.sort_rule());
     session_.catalog.rebuild_visible();
     if (!select_visible_app_by_id(selected_id)) session_.catalog.selected_index() = 0;
-    session_.status.value().clear();
+    session_.status.value() = "Sort: " + sort_rule_label(session_.catalog.sort_rule());
 }
 
 void CatalogController::apply_summary(const SummaryData &summary)
