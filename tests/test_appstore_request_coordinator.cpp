@@ -21,6 +21,7 @@ std::string one_line(std::string value, size_t max_len)
 }
 std::string match_key(std::string value) { return value; }
 void sort_apps(std::vector<StoreApp> &, SortRule) {}
+std::string sort_rule_label(SortRule) { return ""; }
 std::vector<std::string> wrap_display_text(std::string text, int) { return {std::move(text)}; }
 bool has_blocking_missing(const std::string &missing) { return !missing.empty(); }
 std::string missing_install_message(const std::string &) { return "Missing dependencies"; }

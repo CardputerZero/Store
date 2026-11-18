@@ -26,6 +26,11 @@ void sort_apps(std::vector<StoreApp> &apps, SortRule rule)
     });
 }
 
+std::string sort_rule_label(SortRule rule)
+{
+    return rule == SortRule::New ? "Newest first" : "other";
+}
+
 } // namespace appstore
 
 int main()
@@ -83,7 +88,8 @@ int main()
     assert(controller.select_visible_app_by_id("b-id"));
     controller.cycle_sort_rule();
     assert(session.catalog.sort_rule() == appstore::SortRule::New);
-    assert(session.catalog.selected_app()->id == "b-id");
+    assert(session.status.value() == "Sort: Newest first");
+    assert(session.catalog.selected_index() == 0);
 
     controller.open_share_code(1000);
     share_code.input() = "aaaa";

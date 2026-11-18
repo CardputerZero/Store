@@ -45,6 +45,7 @@ bool can_upgrade_app(const StoreApp &app)
 std::string backend_error_message(const std::string &output) { return output; }
 std::string sync_status_message(const std::string &) { return "Catalog synced"; }
 void sort_apps(std::vector<StoreApp> &, SortRule) {}
+std::string sort_rule_label(SortRule) { return ""; }
 
 } // namespace appstore
 

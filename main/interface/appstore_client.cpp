@@ -336,12 +336,12 @@ std::vector<std::string> split_csv_paths(const std::string &value)
 std::string sort_rule_label(SortRule rule)
 {
     switch (rule) {
-        case SortRule::New: return "new";
-        case SortRule::Old: return "old";
-        case SortRule::AtoZ: return "a-z";
-        case SortRule::ZtoA: return "z-a";
+        case SortRule::New: return "Newest first";
+        case SortRule::Old: return "Oldest first";
+        case SortRule::AtoZ: return "A-Z";
+        case SortRule::ZtoA: return "Z-A";
         case SortRule::Default:
-        default: return "def";
+        default: return "Default";
     }
 }
 
