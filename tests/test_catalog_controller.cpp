@@ -89,7 +89,7 @@ int main()
     controller.cycle_sort_rule();
     assert(session.catalog.sort_rule() == appstore::SortRule::New);
     assert(session.status.value() == "Sort: Newest first");
-    assert(session.catalog.selected_app()->id == "b-id");
+    assert(session.catalog.selected_index() == 0);
 
     controller.open_share_code(1000);
     share_code.input() = "aaaa";
